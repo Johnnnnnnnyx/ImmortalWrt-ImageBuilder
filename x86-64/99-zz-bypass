@@ -7,6 +7,10 @@ rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*
 uci -q get network.zerotier >/dev/null && exit 0
 uci set luci.main.mediaurlbase='/luci-static/aurora'
 uci commit luci
+uci set meowx.mixin.ui_path='ui'
+uci -q delete meowx.mixin.ui_name
+uci set meowx.mixin.ui_url='https://github.com/Zephyruso/zashboard/releases/latest/download/dist.zip'
+uci commit meowx
 
 # All physical Ethernet ports belong to the bypass router's DHCP-client LAN.
 bridge=''
