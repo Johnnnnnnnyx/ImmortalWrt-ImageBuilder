@@ -1,0 +1,10 @@
+# Only traffic arriving from ZeroTier and leaving toward the connected LAN
+# needs return-path NAT. Normal LAN traffic and Internet destinations do not.
+set johnny_lan4 {
+    type ipv4_addr
+    flags interval
+    auto-merge
+}
+chain johnny_zt_lan {
+    iifname "zt*" oifname $lan_devices ip daddr @johnny_lan4 counter masquerade
+}
