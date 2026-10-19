@@ -74,6 +74,61 @@ done
 # Updating and loading this exact kernel's module catches a mismatched feed.
 # The guest disk is disposable; test-only packages never enter the ISO.
 apk update
+/usr/sbin/quickstart version --more | grep johnny-feeds-1
+qs_base=http://127.0.0.1:3038/cgi-bin/luci/istore
+qs_api() { curl -fsS --max-time 20 -H 'X-Forwarded-Sid: smoke-test' "$@"; }
+qs_status() { qs_api "$qs_base/network/status/" | jsonfilter -e '@.result.networkInfo'; }
+qs_wait() {
+    for attempt in $(seq 1 45); do
+        state=$(qs_status)
+        [ "$state" = "$1" ] && return 0
+        sleep 1
+    done
+    echo "FAIL: QuickStart expected $1, got $state"
+    return 1
+}
+qs_wait netSuccess
+qs_api "$qs_base/guide/soft-source/list/" > /tmp/qs-sources.json
+grep 'ImmortalWrtUSTC' /tmp/qs-sources.json
+if grep -q 'downloads.openwrt.org\|/openwrt/' /tmp/qs-sources.json; then exit 1; fi
+test "$(qs_api "$qs_base/guide/soft-source/" | jsonfilter -e '@.result.softSource.url')" = https://downloads.immortalwrt.org/
+cp /etc/apk/repositories.d/distfeeds.list /tmp/qs-feeds-original
+sha256sum /etc/apk/repositories.d/meowx.list > /tmp/qs-thirdparty.sha256
+echo 'https://custom.example/packages.adb' >> /etc/apk/repositories.d/distfeeds.list
+qs_api -H 'Content-Type: application/json' -d '{"softSourceIdentity":"ImmortalWrtUSTC"}' "$qs_base/guide/soft-source/" > /tmp/qs-switch.json
+test "$(jsonfilter -i /tmp/qs-switch.json -e '@.result.softSource.url')" = https://mirrors.ustc.edu.cn/immortalwrt/
+test -z "$(jsonfilter -i /tmp/qs-switch.json -e '@.error')"
+test "$(uci get system.@imm_init[0].apk_mirror)" = https://mirrors.ustc.edu.cn/immortalwrt
+test -z "$(uci changes system)"
+grep -F "option apk_mirror 'https://mirrors.ustc.edu.cn/immortalwrt'" /etc/config/system
+grep '^https://custom.example/packages.adb$' /etc/apk/repositories.d/distfeeds.list
+sha256sum -c /tmp/qs-thirdparty.sha256
+cp /etc/apk/repositories.d/distfeeds.list /tmp/qs-feeds-switched
+/etc/init.d/quickstart restart
+sleep 3
+test "$(qs_api "$qs_base/guide/soft-source/" | jsonfilter -e '@.result.softSource.url')" = https://mirrors.ustc.edu.cn/immortalwrt/
+cmp /tmp/qs-feeds-switched /etc/apk/repositories.d/distfeeds.list
+# Reject stale clients requesting an incompatible distribution without writing.
+qs_api -H 'Content-Type: application/json' -d '{"softSourceIdentity":"OpenWrtHttps"}' "$qs_base/guide/soft-source/" > /tmp/qs-rejected.json
+rejected=$(jsonfilter -i /tmp/qs-rejected.json -e '@.success')
+test -n "$rejected"
+test "$rejected" != 0
+test -n "$(jsonfilter -i /tmp/qs-rejected.json -e '@.error')"
+cmp /tmp/qs-feeds-switched /etc/apk/repositories.d/distfeeds.list
+qs_api -H 'Content-Type: application/json' -d '{"softSourceIdentity":"ImmortalWrt"}' "$qs_base/guide/soft-source/" > /tmp/qs-switch.json
+test "$(jsonfilter -i /tmp/qs-switch.json -e '@.result.softSource.url')" = https://downloads.immortalwrt.org/
+test -z "$(jsonfilter -i /tmp/qs-switch.json -e '@.error')"
+test "$(uci get system.@imm_init[0].apk_mirror)" = https://downloads.immortalwrt.org
+test -z "$(uci changes system)"
+grep -F "option apk_mirror 'https://downloads.immortalwrt.org'" /etc/config/system
+sed -i '\|^https://custom.example/packages.adb$|d' /etc/apk/repositories.d/distfeeds.list
+cmp /tmp/qs-feeds-original /etc/apk/repositories.d/distfeeds.list
+# A failed real index must still be visible; restoring it must recover.
+sed -i '\|/base/packages.adb$|c\http://127.0.0.1:9/base/packages.adb' /etc/apk/repositories.d/distfeeds.list
+qs_wait softSourceFailed
+cp /tmp/qs-feeds-original /etc/apk/repositories.d/distfeeds.list
+qs_wait netSuccess
+apk update
 apk add kmod-veth
 fw4 check
 ip link add zttest001 type dummy
