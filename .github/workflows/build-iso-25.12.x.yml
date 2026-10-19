@@ -1,169 +1,163 @@
-# 此工作流是为了构建一个immortalwrt固件的安装器 格式为iso 可用于所有的虚拟机 和 物理机
-# 所谓安装器就是用来安装用的 iso引导的是一个启动速度极快的debian live系统 跑码后输入命令 ddd 即可调出安装菜单
-# 安装时 若是多张硬盘 你可以选择 需要安装的硬盘 此类方法安装的openwrt 安装后是有剩余空间的 更多信息请参考 wukongdaily/img-installer 项目
-# 几乎所有linux 都有各自的安装器 唯独openwrt和armbian 没有, 希望此工作流 弥补这个遗憾 让你更优雅的 安装openwrt 
-
 name: Build 25.12.x ISO x86-64
-
 on:
   workflow_dispatch:
     inputs:
       luci_version:
-        description: "选择luci版本"
-        required: false
-        default: "25.12.1"
+        description: "ImmortalWrt 版本"
+        required: true
+        default: "25.12.2"
         type: choice
         options:
-          - 25.12.0
-          - 25.12.1
           - 25.12.2
+          - 25.12.1
+          - 25.12.0
       profile:
-        description: '选择软件包空间大小'
+        description: "软件包空间大小"
         required: true
+        default: "1G"
         type: choice
-        default: '1G'
         options:
-          - '1G'
-          - '2G'
-          - '3G'
-          - '4G'
-      enable_store:
-        description: "集成 store 商店"
-        required: false
-        type: boolean
-        default: false
+          - 1G
+          - 2G
+          - 3G
+          - 4G
       include_docker:
-        description: "是否编译 Docker 插件"
+        description: "是否额外集成 Docker"
         required: true
-        default: 'yes'
+        default: "no"
         type: choice
         options:
-          - 'yes'
-          - 'no'
-      enable_pppoe:
-        description: "是否配置PPPoE拨号信息?"
-        required: true
-        default: 'no'
-        type: choice
-        options:
-          - 'yes'
-          - 'no'
-      pppoe_account:
-        description: "宽带账号 (若启用PPPoE)"
-        required: false
-      pppoe_password:
-        description: "宽带密码 (若启用PPPoE)"
-        required: false
+          - "no"
+          - "yes"
 
 permissions:
   contents: write
 
 jobs:
-  build_immortalwrt:
+  build:
     runs-on: ubuntu-22.04
-
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Set executable permissions
-        run: chmod +x ${{ github.workspace }}/x86-64/build25.sh
-      
-      - name: Validate PPPoE Inputs
+      - name: Test customization scripts
         run: |
-          if [[ "${{ github.event.inputs.enable_pppoe }}" == "yes" ]]; then
-            if [[ -z "${{ github.event.inputs.pppoe_account }}" || -z "${{ github.event.inputs.pppoe_password }}" ]]; then
-              echo "Error: PPPoE account and password must be provided when PPPoE is enabled!"
-              exit 1
-            fi
-          fi
-      - name: Enable Store integration
-        run: |
-          if [ "${{ github.event.inputs.enable_store }}" == "true" ]; then
-            echo 'CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-store"' >> shell/apk-custom-packages.sh
-            echo "✅ 已追加 luci-app-store"
-          else
-            echo "❎ 未启用 luci-app-store"
-          fi
+          sh x86-64/test-custom25.sh
+          sh -n x86-64/99-zz-bypass
+          sh -n x86-64/90-zerotier-rebind
+          bash -n x86-64/build25.sh
+          python3 -m py_compile x86-64/smoke-test25.py
 
-      - name: ✅ 正在构建ImmortalWrt固件25.12.x
+      - name: Build customized bypass firmware
+        env:
+          VERSION: ${{ inputs.luci_version }}
+          SIZE: ${{ inputs.profile }}
+          INCLUDE_DOCKER: ${{ inputs.include_docker }}
         run: |
-          profile="${{ github.event.inputs.profile }}"
-          case "$profile" in
-            1G)
-              ROOTFS_SIZE=1024
-              ;;
-            2G)
-              ROOTFS_SIZE=2048
-              ;;
-            3G)
-              ROOTFS_SIZE=3072
-              ;;
-            4G)
-              ROOTFS_SIZE=4096
-              ;;
-          esac
-          echo "ROOTFS_SIZE=$ROOTFS_SIZE" >> $GITHUB_ENV
-          include_docker="${{ github.event.inputs.include_docker }}"
-          luci_version="${{ github.event.inputs.luci_version }}"
-          echo "Building for rootfs_size: $profile"
-          docker run --rm -i \
+          ROOTFS_SIZE=$(( ${SIZE%G} * 1024 ))
+          docker run --rm \
             --user root \
-            -v "${{ github.workspace }}/bin:/home/build/immortalwrt/bin" \
-            -v "${{ github.workspace }}/files:/home/build/immortalwrt/files" \
-            -v "${{ github.workspace }}/custom:/home/build/immortalwrt/files/etc/config" \
-            -v "${{ github.workspace }}/x86-64/imm25.config:/home/build/immortalwrt/.config" \
-            -v "${{ github.workspace }}/shell:/home/build/immortalwrt/shell" \
-            -v "${{ github.workspace }}/x86-64/build25.sh:/home/build/immortalwrt/build.sh" \
-            -e PROFILE=$ROOTFS_SIZE \
-            -e INCLUDE_DOCKER=$include_docker \
-            -e ENABLE_PPPOE=${{ inputs.enable_pppoe }} \
-            -e PPPOE_ACCOUNT=${{ inputs.pppoe_account }} \
-            -e PPPOE_PASSWORD=${{ inputs.pppoe_password }} \
-          immortalwrt/imagebuilder:x86-64-openwrt-${luci_version} /bin/bash /home/build/immortalwrt/build.sh
+            -v "$GITHUB_WORKSPACE/bin:/home/build/immortalwrt/bin" \
+            -v "$GITHUB_WORKSPACE/files:/home/build/immortalwrt/files" \
+            -v "$GITHUB_WORKSPACE/x86-64/imm25.config:/home/build/immortalwrt/.config" \
+            -v "$GITHUB_WORKSPACE/shell:/home/build/immortalwrt/shell" \
+            -v "$GITHUB_WORKSPACE/x86-64:/home/build/immortalwrt/custom25:ro" \
+            -v "$GITHUB_WORKSPACE/x86-64/build25.sh:/home/build/immortalwrt/build.sh" \
+            -e PROFILE="$ROOTFS_SIZE" \
+            -e INCLUDE_DOCKER="$INCLUDE_DOCKER" \
+            -e ENABLE_PPPOE=no -e PPPOE_ACCOUNT= -e PPPOE_PASSWORD= \
+            -e CUSTOM_BYPASS=1 \
+            "immortalwrt/imagebuilder:x86-64-openwrt-$VERSION" \
+            /bin/bash /home/build/immortalwrt/build.sh
+          sudo chown -R "$(id -u):$(id -g)" bin
 
-      - name: ✅ 复制固件到根目录
+      - name: Verify required firmware packages
         run: |
-          cp ${{ github.workspace }}/bin/targets/x86/64/*squashfs-combined-efi.img.gz ${{ github.workspace }}
+          manifest=$(find bin/targets/x86/64 -maxdepth 1 -name '*.manifest' -print -quit)
+          test -n "$manifest"
+          for package in meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn zerotier luci-app-zerotier luci-app-store quickstart luci-app-quickstart luci-theme-aurora; do
+            grep -E "^${package} - " "$manifest" || exit 1
+          done
+          grep '^kernel - ' "$manifest"
 
-      - name: ✅ 上传固件到 artifact (for ISO generation)
-        uses: actions/upload-artifact@v6
-        with:
-          name: firmware-img
-          path: |
-            *.img.gz
+      - name: Boot firmware and test defaults
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso squashfs-tools
+          image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
+          test -n "$image"
+          python3 x86-64/smoke-test25.py "$image"
 
-  build_installer_iso:
-    runs-on: ubuntu-22.04
-    needs: build_immortalwrt
-
-    steps:
-      - name: Download firmware artifact
-        uses: actions/download-artifact@v7
-        with:
-          name: firmware-img
-
-      - name: ⏬ 同步 img-installer 项目 准备制作ISO
+      - name: Build ISO installer from verified firmware
         run: |
           git clone https://github.com/wukongdaily/img-installer.git
+          git -C img-installer checkout 361ea6138094a2417e62edd01f73fa1160e93e01
+          chmod +x img-installer/supportFiles/custom/build.sh
+          image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
+          cp "$image" firmware-for-iso.img.gz
           cd img-installer
+          bash autobuild/autobuild.sh ../firmware-for-iso.img.gz
 
-      - name: Set executable permissions for scripts
+      - name: Verify ISO boot catalog and embedded firmware
         run: |
-          chmod +x "${{ github.workspace }}/img-installer/custom.sh"
-          chmod +x "${{ github.workspace }}/img-installer/supportFiles/custom/build.sh"
+          iso=img-installer/output/custom-installer-x86_64.iso
+          test -s "$iso"
+          xorriso -indev "$iso" -report_el_torito plain 2>&1 | tee iso-boot-catalog.txt
+          grep 'BIOS' iso-boot-catalog.txt
+          grep 'UEFI' iso-boot-catalog.txt
+          xorriso -osirrox on -indev "$iso" -extract /live/filesystem.squashfs iso-filesystem.squashfs
+          image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
+          expected=$(gzip -dc "$image" | sha256sum | cut -d ' ' -f1)
+          actual=$(unsquashfs -cat iso-filesystem.squashfs mnt/custom.img | sha256sum | cut -d ' ' -f1)
+          test "$expected" = "$actual"
+          echo "PASS: ISO contains the exact boot-tested firmware ($actual)"
+          cd img-installer/output
+          sha256sum custom-installer-x86_64.iso > SHA256SUMS
 
-      - name: ✅ 制作 25.12.x ISO
+      - name: Save build and boot diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-diagnostics-${{ github.run_number }}
+          path: |
+            bin/targets/x86/64/*.manifest
+            bin/targets/x86/64/boot-test.log
+            bin/targets/x86/64/profiles.json
+            iso-boot-catalog.txt
+          if-no-files-found: ignore
+
+      - name: Prepare ISO release notes
+        env:
+          VERSION: ${{ inputs.luci_version }}
+          INCLUDE_DOCKER: ${{ inputs.include_docker }}
         run: |
-          firmware_file=$(ls *squashfs-combined-efi.img.gz)
-          cd img-installer
-          bash autobuild/autobuild.sh "../$firmware_file"
+          cat > "$GITHUB_WORKSPACE/router-info.md" <<EOF
+          ## Johnny 旁路由 ISO 安装器 — ImmortalWrt $VERSION x86-64
 
-      - name: 🚀 上传 ISO 到 Release
+          - 虚拟机选择 UEFI 启动，挂载 ISO，并准备至少 8 GB 虚拟硬盘。
+          - 启动后输入 ddd，选择目标虚拟硬盘安装；安装完成后卸载 ISO，从硬盘启动。安装会清空所选硬盘。
+          - 默认通过主路由 DHCP 获取管理地址；请在主路由租约列表查找 ImmortalWrt。
+          - 自身 DHCP 服务已关闭，物理网口加入 LAN；首次使用只连接一个网口到现有局域网。
+          - 用户名 root，初始无密码；首次登录后请设置密码。
+          - 内置 MeowX（含核心和中文界面）、ZeroTier、iStore、首页和网络向导；NAS 菜单隐藏。
+          - 默认使用 Aurora 1.4.0 主题。
+          - ZeroTier 网络 ID 留空。在 VPN → ZeroTier 的 earth 网络中填写 ID 并保存应用，再到管理中心授权。
+          - ZeroTier 接口自动关联，已允许与 LAN 双向转发；未启用 NAT、默认路由或 DNS 接管。
+          - 两地整个局域网互访仍需 ZeroTier 托管路由及主路由到对方网段的静态路由。
+          - Docker: $INCLUDE_DOCKER
+          - 镜像已通过软件包清单检查及 QEMU 启动检查；实机网卡和两地联通性需部署后验证。
+          EOF
+
+      - name: Publish verified firmware
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: "Custom-Installer-x86_64-ISO"
-          body_path: "${{ github.workspace }}/img-installer/autobuild/info.md"
+          tag_name: Johnny-ISO-${{ inputs.luci_version }}-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Johnny ImmortalWrt ${{ inputs.luci_version }} x86-64 ISO (${{ github.run_number }})
+          body_path: router-info.md
+          fail_on_unmatched_files: true
           files: |
             img-installer/output/custom-installer-x86_64.iso
-          token: "${{ secrets.GITHUB_TOKEN }}"
+            bin/targets/x86/64/*.manifest
+            img-installer/output/SHA256SUMS
