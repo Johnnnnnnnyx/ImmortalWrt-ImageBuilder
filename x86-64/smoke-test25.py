@@ -29,6 +29,9 @@ test "$(uci get firewall.johnny_zerotier.masq)" = 0
 test "$(uci get firewall.zerotier_to_lan.dest)" = lan
 test "$(uci get firewall.lan_to_zerotier.dest)" = zerotier
 test -x /usr/bin/meowx-core
+test -s /etc/meowx/run/ui/index.html
+test "$(uci get meowx.mixin.ui_path)" = ui
+test -z "$(uci -q get meowx.mixin.ui_name)"
 test -x /usr/sbin/quickstart
 test -f /usr/lib/lua/luci/controller/quickstart.lua
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-base.json -e '@["admin/nas"].title')"
