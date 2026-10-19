@@ -84,6 +84,7 @@ process = subprocess.Popen(
 selector = selectors.DefaultSelector()
 selector.register(process.stdout, selectors.EVENT_READ)
 started = time.monotonic()
+activated = False
 sent = False
 output = b""
 passed = False
@@ -98,15 +99,22 @@ try:
                 log.flush()
                 output += chunk
             # Allow first-boot UCI defaults and services to finish before testing.
-            if not sent and time.monotonic() - started > 65 and b"Please press Enter" in output:
+            if not activated and time.monotonic() - started > 65 and b"Please press Enter" in output:
                 process.stdin.write(b"\n")
+                process.stdin.flush()
+                activated = True
+            # askfirst flushes pending input while starting ash. Wait for ash's
+            # actual prompt before sending the checks, otherwise they are lost.
+            if activated and not sent and b"root@ImmortalWrt:~# " in output:
                 # A here-document keeps the test marker separate from echoed input.
                 process.stdin.write(("cat > /tmp/check.sh <<'JOHNNY_EOF'\n" + checks +
-                                     "\nJOHNNY_EOF\nsh /tmp/check.sh\n").encode())
+                                     "\nJOHNNY_EOF\nsh /tmp/check.sh || echo JOHNNY_BOOT_TEST_FAILED\n").encode())
                 process.stdin.flush()
                 sent = True
             if b"\nJOHNNY_BOOT_TEST_PASSED\r\n" in output:
                 passed = True
+                break
+            if b"\nJOHNNY_BOOT_TEST_FAILED\r\n" in output:
                 break
 finally:
     process.terminate()
