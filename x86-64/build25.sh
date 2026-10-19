@@ -50,6 +50,13 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   rm -f packages/luci-theme-aurora-*.apk
   curl -fL --retry 3 https://github.com/eamonxg/luci-theme-aurora/releases/download/v1.4.0/luci-theme-aurora-1.4.0-r20260920.apk -o packages/luci-theme-aurora-1.4.0-r20260920.apk
   echo '05f9015e0a4e2859f6a153f69e472f2984481490d4ce6db19b8a41bba7264f1e  packages/luci-theme-aurora-1.4.0-r20260920.apk' | sha256sum -c -
+  # Bundle the dashboard and fonts so opening it needs no first-run download.
+  curl -fL --retry 3 https://github.com/Zephyruso/zashboard/releases/download/v3.29.1/dist.zip -o /tmp/zashboard.zip
+  echo '4f16cce229e223bd07b5a3daccfbfb8bf349d7335572d412959284ab6c9bab50  /tmp/zashboard.zip' | sha256sum -c -
+  unzip -q /tmp/zashboard.zip -d /tmp/zashboard
+  mkdir -p files/etc/meowx/run/ui
+  cp -a /tmp/zashboard/dist/. files/etc/meowx/run/ui/
+  test -s files/etc/meowx/run/ui/index.html
   # Add the signed APK feed to ImageBuilder and the installed firmware.
   MEOWX_URL="https://dl.miaomiaowux.com/meowx/openwrt"
   MEOWX_FEED="$MEOWX_URL/openwrt-25.12/x86_64/meowx/packages.adb"
