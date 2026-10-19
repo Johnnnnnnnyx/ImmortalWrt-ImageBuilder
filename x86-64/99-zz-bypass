@@ -1,0 +1,81 @@
+#!/bin/sh
+# Hide only the NAS navigation category; QuickStart's backend URLs remain valid.
+sed -i '/"title": "NAS",/d' /usr/share/luci/menu.d/luci-base.json
+rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*
+
+# Preserve settings restored from a previously customized image.
+uci -q get network.zerotier >/dev/null && exit 0
+uci set luci.main.mediaurlbase='/luci-static/aurora'
+uci commit luci
+
+# All physical Ethernet ports belong to the bypass router's DHCP-client LAN.
+bridge=''
+for section in $(uci show network | sed -n 's/^\(network\.[^=]*\)=device$/\1/p'); do
+    [ "$(uci -q get "$section.name")" = "br-lan" ] || continue
+    bridge="$section"
+    break
+done
+if [ -z "$bridge" ]; then
+    bridge=network.br_lan
+    uci set "$bridge=device"
+    uci set "$bridge.type=bridge"
+    uci set "$bridge.name=br-lan"
+fi
+uci -q delete "$bridge.ports"
+for iface in /sys/class/net/*; do
+    [ -e "$iface/device" ] || continue
+    name="${iface##*/}"
+    case "$name" in eth*|en*) uci add_list "$bridge.ports=$name" ;; esac
+done
+uci -q delete network.wan
+uci -q delete network.wan6
+for option in ipaddr netmask gateway dns; do
+    uci -q delete "network.lan.$option"
+done
+uci set network.lan.proto='dhcp'
+uci set network.lan.device='br-lan'
+uci set dhcp.lan.ignore='1'
+uci set dhcp.lan.ra='disabled'
+uci set dhcp.lan.dhcpv6='disabled'
+uci set dhcp.lan.ndp='disabled'
+
+uci set network.zerotier='interface'
+uci set network.zerotier.proto='none'
+uci set network.zerotier.auto='1'
+
+uci set zerotier.global.enabled='1'
+uci set zerotier.global.config_path='/etc/zerotier'
+# Keep the packaged service's transport-port rules; the zone below handles LAN.
+uci set zerotier.global.fw_allow_input='1'
+uci set zerotier.earth.enabled='1'
+uci set zerotier.earth.id=''
+uci set zerotier.earth.allow_managed='1'
+uci set zerotier.earth.allow_global='0'
+uci set zerotier.earth.allow_default='0'
+uci set zerotier.earth.allow_dns='0'
+uci set zerotier.earth.fw_allow_input='0'
+uci set zerotier.earth.fw_allow_forward='0'
+uci set zerotier.earth.fw_allow_masq='0'
+
+uci -q delete firewall.johnny_zerotier
+uci set firewall.johnny_zerotier='zone'
+uci set firewall.johnny_zerotier.name='zerotier'
+uci add_list firewall.johnny_zerotier.network='zerotier'
+uci set firewall.johnny_zerotier.input='ACCEPT'
+uci set firewall.johnny_zerotier.output='ACCEPT'
+uci set firewall.johnny_zerotier.forward='REJECT'
+uci set firewall.johnny_zerotier.masq='0'
+uci set firewall.zerotier_to_lan='forwarding'
+uci set firewall.zerotier_to_lan.src='zerotier'
+uci set firewall.zerotier_to_lan.dest='lan'
+uci set firewall.lan_to_zerotier='forwarding'
+uci set firewall.lan_to_zerotier.src='lan'
+uci set firewall.lan_to_zerotier.dest='zerotier'
+for section in $(uci show firewall | sed -n 's/^\(firewall\.[^=]*\)=zone$/\1/p'); do
+    [ "$(uci -q get "$section.name")" = "wan" ] && uci set "$section.input=REJECT"
+done
+uci commit network
+uci commit dhcp
+uci commit zerotier
+uci commit firewall
+exit 0
