@@ -1,0 +1,16 @@
+#!/bin/sh
+# Called after fw4 start/reload, and when the LAN address changes. The set is
+# volatile: no personal subnet or node identity is written to the firmware.
+. /lib/functions/network.sh
+network_flush_cache
+network_get_subnets subnets lan
+{
+    echo 'flush set inet fw4 johnny_lan4'
+    for subnet in $subnets; do
+        # network_get_subnets returns IPv4 address/prefix pairs from netifd.
+        case "$subnet" in *[!0-9./]*|'') continue ;; esac
+        network=$(ipcalc.sh "$subnet" | sed -n 's/^NETWORK=//p')
+        [ -n "$network" ] || continue
+        printf 'add element inet fw4 johnny_lan4 { %s/%s }\n' "$network" "${subnet#*/}"
+    done
+} | nft -f -
