@@ -57,6 +57,14 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   mkdir -p files/etc/meowx/run/ui
   cp -a /tmp/zashboard/dist/. files/etc/meowx/run/ui/
   test -s files/etc/meowx/run/ui/index.html
+  # Pin upstream data to one immutable commit and verify every download.
+  # These names match meowx-core's asset lookup, including its profile tests.
+  GEO_URL=https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/d7fba95fbfc9eb82ec33b1762b3d7e11833eacd9
+  for pair in geoip.metadb:geoip.metadb geoip.dat:GeoIP.dat geosite.dat:GeoSite.dat GeoLite2-ASN.mmdb:ASN.mmdb; do
+    curl -fL --retry 3 --connect-timeout 20 --max-time 180 "$GEO_URL/${pair%%:*}" -o "files/etc/meowx/run/${pair#*:}"
+  done
+  cp custom25/geodata.sha256 files/etc/meowx/run/geodata.sha256
+  (cd files/etc/meowx/run && sha256sum -c geodata.sha256)
   # Add the signed APK feed to ImageBuilder and the installed firmware.
   MEOWX_URL="https://dl.miaomiaowux.com/meowx/openwrt"
   MEOWX_FEED="$MEOWX_URL/openwrt-25.12/x86_64/meowx/packages.adb"
@@ -68,6 +76,13 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   cp custom25/31-zerotier-interface files/etc/hotplug.d/net/31-zerotier-interface
   cp custom25/90-zerotier-rebind files/etc/hotplug.d/iface/90-zerotier-rebind
   cp custom25/99-zz-bypass files/etc/uci-defaults/99-zz-bypass
+  cp custom25/99-zzz-johnnywrt files/etc/uci-defaults/99-zzz-johnnywrt
+  mkdir -p files/usr/libexec files/etc/nftables.d files/usr/share/nftables.d/chain-pre/srcnat files/www/luci-static/aurora/images
+  cp custom25/johnny-fix-distfeeds custom25/johnny-zt-nat files/usr/libexec/
+  cp custom25/30-johnny-zt-lan.nft files/etc/nftables.d/
+  printf 'jump johnny_zt_lan\n' > files/usr/share/nftables.d/chain-pre/srcnat/30-johnny-zt-lan.nft
+  cp custom25/johnnywrt.svg files/www/luci-static/aurora/images/johnnywrt.svg
+  chmod 755 files/usr/libexec/johnny-fix-distfeeds files/usr/libexec/johnny-zt-nat files/etc/uci-defaults/99-zzz-johnnywrt
   # The shared defaults rewrite LAN/WAN even after a settings-preserving upgrade.
   printf '#!/bin/sh\nexit 0\n' > files/etc/uci-defaults/99-custom.sh
   # This shell fragment is unnecessary here and is not a valid UCI config.
