@@ -1,6 +1,6 @@
 #!/bin/sh
 # Keep the release, architecture and kernel ABI; only correct known prefixes.
 sed -i \
-    -e 's|https://mirrors.cernet.edu.cn/openwrt/|https://downloads.immortalwrt.org/|g' \
-    -e 's|https://mirrors.vsean.net/openwrt/|https://downloads.immortalwrt.org/|g' \
+    -e 's|https\?://downloads\.openwrt\.org/|https://downloads.immortalwrt.org/|g' \
+    -e 's#https\?://mirrors\.\(cernet\.edu\.cn\|vsean\.net\|sustech\.edu\.cn\|tuna\.tsinghua\.edu\.cn\|ustc\.edu\.cn\|aliyun\.com\|cloud\.tencent\.com\)/openwrt/#https://downloads.immortalwrt.org/#g' \
     "${1:-/etc/apk/repositories.d/distfeeds.list}"
