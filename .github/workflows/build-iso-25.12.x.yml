@@ -142,6 +142,7 @@ jobs:
           - 用户名 root，初始无密码；首次登录后请设置密码。
           - 内置 MeowX（含核心和中文界面）、ZeroTier、iStore、首页和网络向导；NAS 菜单隐藏。
           - 默认使用 Aurora 1.4.0 主题。
+          - 已预装 zashboard 3.29.1 完整面板及字体，无需首次打开时下载；导入订阅并启动 MeowX 后可打开面板。
           - ZeroTier 网络 ID 留空。在 VPN → ZeroTier 的 earth 网络中填写 ID 并保存应用，再到管理中心授权。
           - ZeroTier 接口自动关联，已允许与 LAN 双向转发；未启用 NAT、默认路由或 DNS 接管。
           - 两地整个局域网互访仍需 ZeroTier 托管路由及主路由到对方网段的静态路由。
