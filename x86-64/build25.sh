@@ -2,6 +2,12 @@
 # Log file for debugging
 # 目前支持少部分第三方软件apk 通过打开shell/apk-custom-packages.sh的注释来集成
 source shell/apk-custom-packages.sh
+if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
+  set -e
+  CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-store luci-i18n-quickstart-zh-cn luci-i18n-zerotier-zh-cn"
+  CUSTOM_PACKAGES="$CUSTOM_PACKAGES meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn"
+  CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-theme-aurora"
+fi
 echo "第三方apk软件包: $CUSTOM_PACKAGES"
 LOGFILE="/tmp/uci-defaults-log.txt"
 echo "Starting 99-custom.sh at $(date)" >> $LOGFILE
@@ -39,6 +45,26 @@ else
   ls -lah /home/build/immortalwrt/packages/
 fi
 
+if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
+  # Use the author's 25.12 APK instead of the older bundled theme.
+  rm -f packages/luci-theme-aurora-*.apk
+  curl -fL --retry 3 https://github.com/eamonxg/luci-theme-aurora/releases/download/v1.4.0/luci-theme-aurora-1.4.0-r20260920.apk -o packages/luci-theme-aurora-1.4.0-r20260920.apk
+  echo '05f9015e0a4e2859f6a153f69e472f2984481490d4ce6db19b8a41bba7264f1e  packages/luci-theme-aurora-1.4.0-r20260920.apk' | sha256sum -c -
+  # Add the signed APK feed to ImageBuilder and the installed firmware.
+  MEOWX_URL="https://dl.miaomiaowux.com/meowx/openwrt"
+  MEOWX_FEED="$MEOWX_URL/openwrt-25.12/x86_64/meowx/packages.adb"
+  mkdir -p keys files/etc/apk/keys files/etc/apk/repositories.d files/etc/hotplug.d/net files/etc/hotplug.d/iface
+  curl -fL --retry 3 "$MEOWX_URL/public-key.pem" -o keys/meowx.pem
+  echo "$MEOWX_FEED" >> repositories
+  cp keys/meowx.pem files/etc/apk/keys/meowx.pem
+  echo "$MEOWX_FEED" > files/etc/apk/repositories.d/meowx.list
+  cp custom25/31-zerotier-interface files/etc/hotplug.d/net/31-zerotier-interface
+  cp custom25/90-zerotier-rebind files/etc/hotplug.d/iface/90-zerotier-rebind
+  cp custom25/99-zz-bypass files/etc/uci-defaults/99-zz-bypass
+  # The shared defaults rewrite LAN/WAN even after a settings-preserving upgrade.
+  printf '#!/bin/sh\nexit 0\n' > files/etc/uci-defaults/99-custom.sh
+  chmod 755 files/etc/hotplug.d/net/31-zerotier-interface files/etc/hotplug.d/iface/90-zerotier-rebind files/etc/uci-defaults/99-zz-bypass
+fi
 
 # 输出调试信息
 echo "$(date '+%Y-%m-%d %H:%M:%S') - 开始构建固件..."
