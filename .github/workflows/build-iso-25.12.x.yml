@@ -41,6 +41,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Set up Go for the pinned QuickStart backend
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.23.12'
+          cache: false
+
+      - name: Build and test QuickStart ImmortalWrt compatibility fix
+        run: sh x86-64/build-quickstart.sh
+
       - name: Test customization scripts
         run: |
           sh x86-64/test-custom25.sh
@@ -149,6 +158,8 @@ jobs:
           - 内置 luci-mod-rpc、luci-lib-ipkg 和 luci-compat；LuCI RPC 随 Web 服务启动。系统使用 APK，旧 ipkg RPC 的软件包管理功能仍依赖 opkg，不能据此认定兼容 APK。
           - 页面默认名称 Johnnywrt，使用原始 Johnny Logo 标签页图标；底层版本信息保持 ImmortalWrt，避免软件源及内核包不匹配。
           - 软件源校正为 ImmortalWrt 官方源，保留版本号、架构和内核 ABI；构建中实际更新列表并安装匹配内核的测试模块。
+          - 修复首页误报“软件源错误”：检测实际 APK 索引，不再访问不存在的 .asc 文件；切换菜单只提供 ImmortalWrt 官方源及中科大 ImmortalWrt 镜像。切换保留当前版本、内核 ABI 和第三方源，并同步保存镜像设置。
+          - QuickStart 后端使用固定的 0.13.0 公开源码提交 fa23fc8 加软件源修复，标识 johnny-feeds-1；已运行上游 Go 测试和固件内 API 检查。
           - 已预装 zashboard 3.29.1 完整面板及字体，无需首次打开时下载；导入订阅并启动 MeowX 后可打开面板。
           - 同时内置 GeoIP、GeoSite 和 ASN 数据并校验 SHA256；MeowX 两种地理数据模式已通过下载地址不可用时的配置测试。订阅本身和自定义远程规则仍需联网。
           - ZeroTier 网络 ID 留空。在 VPN → ZeroTier 的 earth 网络中填写 ID 并保存应用，再到管理中心授权。
