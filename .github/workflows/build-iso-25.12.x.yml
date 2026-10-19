@@ -44,7 +44,10 @@ jobs:
       - name: Test customization scripts
         run: |
           sh x86-64/test-custom25.sh
+          sh x86-64/test-distfeeds.sh
           sh -n x86-64/99-zz-bypass
+          sh -n x86-64/99-zzz-johnnywrt
+          sh -n x86-64/johnny-zt-nat
           sh -n x86-64/90-zerotier-rebind
           bash -n x86-64/build25.sh
           python3 -m py_compile x86-64/smoke-test25.py
@@ -113,7 +116,8 @@ jobs:
           test "$expected" = "$actual"
           echo "PASS: ISO contains the exact boot-tested firmware ($actual)"
           cd img-installer/output
-          sha256sum custom-installer-x86_64.iso > SHA256SUMS
+          mv custom-installer-x86_64.iso Johnnywrt-x86_64.iso
+          sha256sum Johnnywrt-x86_64.iso > SHA256SUMS
 
       - name: Save build and boot diagnostics
         if: always()
@@ -133,19 +137,23 @@ jobs:
           INCLUDE_DOCKER: ${{ inputs.include_docker }}
         run: |
           cat > "$GITHUB_WORKSPACE/router-info.md" <<EOF
-          ## Johnny 旁路由 ISO 安装器 — ImmortalWrt $VERSION x86-64
+          ## Johnnywrt 旁路由 ISO 安装器 — 基于 ImmortalWrt $VERSION x86-64
 
           - 虚拟机选择 UEFI 启动，挂载 ISO，并准备至少 8 GB 虚拟硬盘。
           - 启动后输入 ddd，选择目标虚拟硬盘安装；安装完成后卸载 ISO，从硬盘启动。安装会清空所选硬盘。
-          - 默认通过主路由 DHCP 获取管理地址；请在主路由租约列表查找 ImmortalWrt。
+          - 默认通过主路由 DHCP 获取管理地址；请在主路由租约列表查找 Johnnywrt。
           - 自身 DHCP 服务已关闭，物理网口加入 LAN；首次使用只连接一个网口到现有局域网。
           - 用户名 root，初始无密码；首次登录后请设置密码。
           - 内置 MeowX（含核心和中文界面）、ZeroTier、iStore、首页和网络向导；NAS 菜单隐藏。
           - 默认使用 Aurora 1.4.0 主题。
+          - 页面默认名称 Johnnywrt，使用原始 Johnny Logo 标签页图标；底层版本信息保持 ImmortalWrt，避免软件源及内核包不匹配。
+          - 软件源校正为 ImmortalWrt 官方源，保留版本号、架构和内核 ABI；构建中实际更新列表并安装匹配内核的测试模块。
           - 已预装 zashboard 3.29.1 完整面板及字体，无需首次打开时下载；导入订阅并启动 MeowX 后可打开面板。
+          - 同时内置 GeoIP、GeoSite 和 ASN 数据并校验 SHA256；MeowX 两种地理数据模式已通过下载地址不可用时的配置测试。订阅本身和自定义远程规则仍需联网。
           - ZeroTier 网络 ID 留空。在 VPN → ZeroTier 的 earth 网络中填写 ID 并保存应用，再到管理中心授权。
-          - ZeroTier 接口自动关联，已允许与 LAN 双向转发；未启用 NAT、默认路由或 DNS 接管。
-          - 两地整个局域网互访仍需 ZeroTier 托管路由及主路由到对方网段的静态路由。
+          - ZeroTier 接口自动关联，允许与 LAN 双向转发；仅对 ZeroTier 进入本机直接连接的 IPv4 LAN 的流量做源地址转换，帮助局域网设备回包。防火墙重载及 LAN 改地址后自动刷新。
+          - 两地均使用此旁路由时：客户端网关指向本地旁路由，ZeroTier 管理中心配置两地托管路由并授权节点。无需修改主路由，也无需给 NAS 添加回程路由；访问记录中看到的是本地旁路由地址。
+          - 不内置个人网络 ID、节点密钥、站点 IP 或密码，不接管 ZeroTier 默认路由或 DNS。保留配置升级时仍保留原有 LAN 与 ZeroTier 设置。
           - Docker: $INCLUDE_DOCKER
           - 镜像已通过软件包清单检查及 QEMU 启动检查；实机网卡和两地联通性需部署后验证。
           EOF
@@ -153,12 +161,50 @@ jobs:
       - name: Publish verified firmware
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: Johnny-ISO-${{ inputs.luci_version }}-${{ github.run_number }}
+          tag_name: Johnnywrt-ISO-${{ inputs.luci_version }}-${{ github.run_number }}
           target_commitish: ${{ github.sha }}
-          name: Johnny ImmortalWrt ${{ inputs.luci_version }} x86-64 ISO (${{ github.run_number }})
+          name: Johnnywrt ${{ inputs.luci_version }} x86-64 ISO (${{ github.run_number }})
           body_path: router-info.md
           fail_on_unmatched_files: true
           files: |
-            img-installer/output/custom-installer-x86_64.iso
+            img-installer/output/Johnnywrt-x86_64.iso
             bin/targets/x86/64/*.manifest
             img-installer/output/SHA256SUMS
+
+  cleanup:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Remove superseded firmware releases and build artifacts
+        uses: actions/github-script@v8
+        env:
+          NEW_TAG: Johnnywrt-ISO-${{ inputs.luci_version }}-${{ github.run_number }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: current } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: process.env.NEW_TAG });
+            for (const name of ['Johnnywrt-x86_64.iso', 'SHA256SUMS']) {
+              if (!current.assets.some(a => a.name === name && a.size > 0)) {
+                throw new Error(`New release is incomplete: ${name}`);
+              }
+            }
+            const cutoff = Date.parse(current.published_at);
+            const releases = await github.paginate(github.rest.repos.listReleases, { owner, repo, per_page: 100 });
+            for (const release of releases) {
+              if (release.id !== current.id && /^Johnny(?:wrt)?-ISO-25\.12\.\d+-\d+$/.test(release.tag_name)
+                  && Date.parse(release.published_at) < cutoff) {
+                await github.rest.repos.deleteRelease({ owner, repo, release_id: release.id });
+                core.info(`Removed old firmware release: ${release.tag_name}`);
+              }
+            }
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, { owner, repo, per_page: 100 });
+            for (const artifact of artifacts) {
+              if (/^firmware-diagnostics-\d+$/.test(artifact.name) && artifact.workflow_run?.id !== context.runId
+                  && Date.parse(artifact.created_at) < cutoff) {
+                await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id });
+                core.info(`Removed old build artifact: ${artifact.name}`);
+              }
+            }
