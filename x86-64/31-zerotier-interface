@@ -1,0 +1,17 @@
+#!/bin/sh
+# Bind the unmanaged LuCI interface without changing ZeroTier's IP addresses
+# or committing unrelated pending network settings.
+case "${DEVICENAME:-}" in zt*) ;; *) exit 0 ;; esac
+case "$DEVICENAME" in *[!a-zA-Z0-9]*) exit 0 ;; esac
+[ "${#DEVICENAME}" -le 15 ] || exit 0
+[ "$(uci -q get network.zerotier.proto)" = "none" ] || exit 0
+
+case "${ACTION:-}" in
+    add)
+        [ "$(uci -q get zerotier.global.enabled)" = "1" ] || exit 0
+        method=add_device
+        ;;
+    remove) method=remove_device ;;
+    *) exit 0 ;;
+esac
+ubus call network.interface.zerotier "$method" "{\"name\":\"$DEVICENAME\",\"link-ext\":true}"
