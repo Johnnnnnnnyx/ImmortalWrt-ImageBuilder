@@ -1,0 +1,199 @@
+diff --git a/backend/service/guide_soft_source_store.go b/backend/service/guide_soft_source_store.go
+index 9ee7455..58f8ba3 100644
+--- a/backend/service/guide_soft_source_store.go
++++ b/backend/service/guide_soft_source_store.go
+@@ -3,10 +3,9 @@ package service
+ import (
+ 	"context"
+ 	"errors"
+-	"fmt"
+ 	"io/ioutil"
+-	"net/url"
+ 	"os"
++	"os/exec"
+ 	"regexp"
+ 	"strings"
+ 
+@@ -26,6 +25,11 @@ var readGuideSoftSourceFile = ioutil.ReadFile
+ var writeGuideSoftSourceFile = ioutil.WriteFile
+ var statGuideSoftSourceFile = os.Stat
+ 
++func isImmortalWrt() bool {
++	data, err := readGuideSoftSourceFile("/etc/openwrt_release")
++	return err == nil && strings.Contains(string(data), "DISTRIB_ID='ImmortalWrt'")
++}
++
+ type defaultGuideSoftSourceReader struct{}
+ 
+ func newDefaultGuideSoftSourceReader() *defaultGuideSoftSourceReader {
+@@ -34,6 +38,14 @@ func newDefaultGuideSoftSourceReader() *defaultGuideSoftSourceReader {
+ 
+ func (reader *defaultGuideSoftSourceReader) ListSources(ctx context.Context) ([]*models.GuideSoftSourceInfo, error) {
+ 	_ = ctx
++	if isImmortalWrt() {
++		list := make([]*models.GuideSoftSourceInfo, 0, len(immortalSources))
++		for _, source := range immortalSources {
++			copy := source
++			list = append(list, &copy)
++		}
++		return list, nil
++	}
+ 	list := make([]*models.GuideSoftSourceInfo, 0, len(guideSoftSourceIdentities))
+ 	for index, identity := range guideSoftSourceIdentities {
+ 		source := buildGuideSoftSourceByIndex(identity, index)
+@@ -48,16 +60,8 @@ func (reader *defaultGuideSoftSourceReader) ReadCurrentSource(ctx context.Contex
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	parsed, err := url.Parse(feedURL)
+-	if err != nil {
+-		return nil, errors.New("解析base软件源信息失败")
+-	}
+-
+-	normalizedURL := fmt.Sprintf("%v://%v/openwrt/", parsed.Scheme, parsed.Host)
+-	if strings.Contains(parsed.Host, "openwrt") {
+-		normalizedURL = fmt.Sprintf("%v://%v/", parsed.Scheme, parsed.Host)
+-	}
+-	source := resolveGuideSoftSourceByURL(normalizedURL)
++	// The path prefix belongs to the mirror, not to a guessed distribution.
++	source := resolveGuideSoftSourceByURL(feedURL)
+ 	return &source, nil
+ }
+ 
+@@ -78,7 +82,7 @@ func readGuideSoftSourceFeedURL(path string) (string, error) {
+ }
+ 
+ func getApkDistFeedUrlByContent(content string) (string, error) {
+-	found := matchStringOnce(content, `(?m)^(https?:\/\/[^\/]*\/(openwrt\/)?).*\/base\/packages\.adb$`)
++	found := matchStringOnce(content, `(?m)^\s*(https?:\/\/[^\s]+?/)(?:releases/|snapshots/).*\/base\/packages\.adb\s*$`)
+ 	if found == nil {
+ 		return "", errors.New("apk feed not found")
+ 	}
+@@ -86,7 +90,7 @@ func getApkDistFeedUrlByContent(content string) (string, error) {
+ }
+ 
+ func getOpkgDistFeedUrlByContent(content string) (string, error) {
+-	found := matchStringOnce(content, `_base\s+(https?:\/\/[^\/]*\/(openwrt\/)?)`)
++	found := matchStringOnce(content, `_base\s+(https?:\/\/[^\/]*\/(?:(?:openwrt|immortalwrt)\/)?)`)
+ 	if found == nil {
+ 		return "", errors.New("feed not found")
+ 	}
+@@ -113,20 +117,41 @@ func newDefaultGuideSoftSourceWriter() *defaultGuideSoftSourceWriter {
+ }
+ 
+ func (writer *defaultGuideSoftSourceWriter) ReplaceSource(ctx context.Context, source models.GuideSoftSourceInfo) error {
+-	_ = ctx
+-	return replaceGuideSoftSource(source.URL, writer.sourcePath, writer.targetPath)
++	if err := replaceGuideSoftSource(source.URL, writer.sourcePath, writer.targetPath); err != nil {
++		return err
++	}
++	if writer.targetPath == "/etc/apk/repositories.d/distfeeds.list" && isImmortalWrt() {
++		if err := exec.CommandContext(ctx, "uci", "set", "system.@imm_init[0].apk_mirror="+strings.TrimSuffix(source.URL, "/")).Run(); err != nil {
++			return err
++		}
++		return exec.CommandContext(ctx, "uci", "commit", "system").Run()
++	}
++	return nil
+ }
+ 
+ func replaceGuideSoftSource(sourceURL, sourceFile, targetFile string) error {
+-	data, err := readGuideSoftSourceFile(sourceFile)
++	// Preserve the running release/ABI and custom entries; ROM may be older.
++	data, err := readGuideSoftSourceFile(targetFile)
+ 	if err != nil {
+-		data, err = readGuideSoftSourceFile(targetFile)
++		return err
++	}
++	var newFeeds string
++	if strings.Contains(string(data), "/packages.adb") {
++		root, err := getApkDistFeedUrlByContent(string(data))
++		if err != nil {
++			return err
++		}
++		// Only distribution entries at the active root; third-party feeds survive.
++		pattern := `(?m)^` + regexp.QuoteMeta(root) + `(releases/|snapshots/)`
++		newFeeds = regexp.MustCompile(pattern).ReplaceAllString(string(data), sourceURL+"$1")
++	} else {
++		root, err := getOpkgDistFeedUrlByContent(string(data))
+ 		if err != nil {
+ 			return err
+ 		}
++		pattern := `(?m)^(src/gz\s+\S+\s+)` + regexp.QuoteMeta(root)
++		newFeeds = regexp.MustCompile(pattern).ReplaceAllString(string(data), "${1}"+sourceURL)
+ 	}
+-	urlRegex := regexp.MustCompile(`https?:\/\/[^\/]*\/(openwrt\/)?`)
+-	newFeeds := urlRegex.ReplaceAllString(string(data), sourceURL)
+ 
+ 	fileMode := os.FileMode(0644)
+ 	if fi, err := statGuideSoftSourceFile(targetFile); err == nil {
+diff --git a/backend/service/guide_soft_source_store_test.go b/backend/service/guide_soft_source_store_test.go
+index 8995cbc..cbaa105 100644
+--- a/backend/service/guide_soft_source_store_test.go
++++ b/backend/service/guide_soft_source_store_test.go
+@@ -120,7 +120,7 @@ func TestDefaultGuideSoftSourceReaderReadCurrentSourceMapsMirrorHost(t *testing.
+ 	prevRead := readGuideSoftSourceFile
+ 	defer func() { readGuideSoftSourceFile = prevRead }()
+ 	readGuideSoftSourceFile = func(path string) ([]byte, error) {
+-		return []byte("src/gz istoreos_base https://mirrors.sustech.edu.cn/packages/base\n"), nil
++		return []byte("src/gz istoreos_base https://mirrors.sustech.edu.cn/openwrt/packages/base\n"), nil
+ 	}
+ 
+ 	reader := newDefaultGuideSoftSourceReader()
+diff --git a/backend/service/guide_soft_source_types.go b/backend/service/guide_soft_source_types.go
+index b5c5765..c3116a8 100644
+--- a/backend/service/guide_soft_source_types.go
++++ b/backend/service/guide_soft_source_types.go
+@@ -2,6 +2,12 @@ package service
+ 
+ import "github.com/istoreos/quickstart/backend/models"
+ 
++// Johnnywrt keeps ImmortalWrt's distribution identity and kernel ABI.
++var immortalSources = []models.GuideSoftSourceInfo{
++	{Identity: "ImmortalWrt", Name: "ImmortalWrt 官方源（HTTPS）", URL: "https://downloads.immortalwrt.org/"},
++	{Identity: "ImmortalWrtUSTC", Name: "中国科学技术大学（ImmortalWrt）", URL: "https://mirrors.ustc.edu.cn/immortalwrt/"},
++}
++
+ var guideSoftSourceIdentities = []string{
+ 	"OpenWrtHttp",
+ 	"OpenWrtHttps",
+@@ -44,6 +50,11 @@ func buildGuideSoftSourceByIndex(identity string, index int) models.GuideSoftSou
+ }
+ 
+ func resolveGuideSoftSourceByURL(url string) models.GuideSoftSourceInfo {
++	for _, source := range immortalSources {
++		if source.URL == url {
++			return source
++		}
++	}
+ 	for index, softURL := range guideSoftSourceURLs {
+ 		if softURL == url {
+ 			return models.GuideSoftSourceInfo{
+@@ -61,6 +72,14 @@ func resolveGuideSoftSourceByURL(url string) models.GuideSoftSourceInfo {
+ }
+ 
+ func resolveGuideSoftSourceByIdentity(identity string) models.GuideSoftSourceInfo {
++	if isImmortalWrt() {
++		for _, source := range immortalSources {
++			if source.Identity == identity {
++				return source
++			}
++		}
++		return models.GuideSoftSourceInfo{}
++	}
+ 	for index, sourceIdentity := range guideSoftSourceIdentities {
+ 		if sourceIdentity == identity {
+ 			return models.GuideSoftSourceInfo{
+diff --git a/backend/service/network-online.go b/backend/service/network-online.go
+index bd596cd..e033384 100644
+--- a/backend/service/network-online.go
++++ b/backend/service/network-online.go
+@@ -131,7 +131,8 @@ func getApkDistFeedUrlForCheck() (string, error) {
+ 	if found == nil {
+ 		return "", errors.New("apk feed not found")
+ 	}
+-	return found[1] + ".asc", nil
++	// APK v3 signs the index itself; packages.adb.asc does not exist.
++	return found[1], nil
+ }
+ 
+ func getOpkgDistFeedUrlForCheck() (string, error) {
