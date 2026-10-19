@@ -20,11 +20,21 @@ checks = r'''
 set -ex
 test "$(uci get system.@system[0].hostname)" = Johnnywrt
 grep "DISTRIB_ID='ImmortalWrt'" /etc/openwrt_release
-curl -fsSL http://127.0.0.1/cgi-bin/luci/ -o /tmp/johnny-luci.html
+# LuCI deliberately serves the unauthenticated login page with HTTP 403.
+status=$(curl -sSL -D /tmp/johnny-luci.headers -w '%{http_code}' http://127.0.0.1/cgi-bin/luci/ -o /tmp/johnny-luci.html)
+test "$status" = 403
+grep -i '^X-LuCI-Login-Required: yes' /tmp/johnny-luci.headers
 grep 'Johnnywrt' /tmp/johnny-luci.html
 grep 'johnnywrt.svg' /tmp/johnny-luci.html
 curl -fsS http://127.0.0.1/luci-static/aurora/images/johnnywrt.svg -o /tmp/johnny-icon.svg
 cmp /tmp/johnny-icon.svg /www/luci-static/aurora/images/johnnywrt.svg
+test -f /usr/lib/lua/luci/controller/rpc.lua
+test -f /usr/lib/lua/luci/model/ipkg.lua
+# Exercise RPC login and a read-only UCI request in this disposable guest.
+token=$(curl -fsS -H 'Content-Type: application/json' -d '{"id":1,"method":"login","params":["root",""]}' http://127.0.0.1/cgi-bin/luci/rpc/auth | jsonfilter -e '@.result')
+echo "$token" | grep -Eq '^[0-9a-f]{32}$'
+rpc_hostname=$(curl -fsS -H 'Content-Type: application/json' -d '{"id":2,"method":"get","params":["system","@system[0]","hostname"]}' "http://127.0.0.1/cgi-bin/luci/rpc/uci?auth=$token" | jsonfilter -e '@.result')
+test "$rpc_hostname" = Johnnywrt
 test "$(uci get luci.main.mediaurlbase)" = /luci-static/aurora
 test -d /www/luci-static/aurora
 test "$(uci get network.lan.proto)" = dhcp
