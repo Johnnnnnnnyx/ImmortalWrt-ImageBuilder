@@ -7,6 +7,7 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-app-store luci-i18n-quickstart-zh-cn luci-i18n-zerotier-zh-cn"
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES meowx-core meowx luci-app-meowx luci-i18n-meowx-zh-cn"
   CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-theme-aurora"
+  CUSTOM_PACKAGES="$CUSTOM_PACKAGES luci-mod-rpc luci-lib-ipkg luci-compat"
 fi
 echo "第三方apk软件包: $CUSTOM_PACKAGES"
 LOGFILE="/tmp/uci-defaults-log.txt"
