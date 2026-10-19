@@ -70,6 +70,8 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   cp custom25/99-zz-bypass files/etc/uci-defaults/99-zz-bypass
   # The shared defaults rewrite LAN/WAN even after a settings-preserving upgrade.
   printf '#!/bin/sh\nexit 0\n' > files/etc/uci-defaults/99-custom.sh
+  # This shell fragment is unnecessary here and is not a valid UCI config.
+  rm -f files/etc/config/pppoe-settings
   chmod 755 files/etc/hotplug.d/net/31-zerotier-interface files/etc/hotplug.d/iface/90-zerotier-rebind files/etc/uci-defaults/99-zz-bypass
 fi
 
