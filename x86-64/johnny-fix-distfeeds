@@ -1,0 +1,6 @@
+#!/bin/sh
+# Keep the release, architecture and kernel ABI; only correct known prefixes.
+sed -i \
+    -e 's|https://mirrors.cernet.edu.cn/openwrt/|https://downloads.immortalwrt.org/|g' \
+    -e 's|https://mirrors.vsean.net/openwrt/|https://downloads.immortalwrt.org/|g' \
+    "${1:-/etc/apk/repositories.d/distfeeds.list}"
