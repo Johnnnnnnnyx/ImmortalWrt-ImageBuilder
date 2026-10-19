@@ -1,7 +1,11 @@
 #!/bin/sh
 # netifd can restart while ZeroTier's devices remain alive. Reattach after LAN
 # obtains its address, without restarting ZeroTier or changing managed routes.
-[ "$ACTION" = "ifup" ] && [ "$INTERFACE" = "lan" ] || exit 0
+[ "$INTERFACE" = "lan" ] || exit 0
+case "$ACTION" in
+    ifup|ifupdate|ifdown) /usr/libexec/johnny-zt-nat ;;
+esac
+[ "$ACTION" = "ifup" ] || exit 0
 for device in /sys/class/net/zt*; do
     [ -e "$device" ] || continue
     ACTION=add DEVICENAME="${device##*/}" sh /etc/hotplug.d/net/31-zerotier-interface
