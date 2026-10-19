@@ -1,0 +1,28 @@
+#!/bin/sh
+# Run after packaged defaults, including on settings-preserving upgrades.
+sh /usr/libexec/johnny-fix-distfeeds
+case "$(uci -q get system.@imm_init[0].apk_mirror)" in
+    https://mirrors.cernet.edu.cn/openwrt|https://mirrors.vsean.net/openwrt)
+        uci set system.@imm_init[0].apk_mirror='https://downloads.immortalwrt.org'
+        ;;
+esac
+case "$(uci -q get system.@system[0].hostname)" in
+    ImmortalWrt|OpenWrt|'') uci set system.@system[0].hostname='Johnnywrt' ;;
+esac
+uci commit system
+
+# Aurora exposes favicon tokens; no theme template or release metadata edits.
+touch /etc/config/aurora
+uci -q get aurora.theme >/dev/null || uci set aurora.theme='theme'
+uci set aurora.theme.logo_svg='johnnywrt.svg'
+uci set aurora.theme.favicon_png=''
+uci set aurora.theme.favicon_ico='johnnywrt.svg'
+uci set aurora.theme.icon_cache_version='johnny-1'
+uci commit aurora
+
+uci set firewall.johnny_zt_nat='include'
+uci set firewall.johnny_zt_nat.type='script'
+uci set firewall.johnny_zt_nat.path='/usr/libexec/johnny-zt-nat'
+uci set firewall.johnny_zt_nat.fw4_compatible='1'
+uci commit firewall
+exit 0
