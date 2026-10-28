@@ -132,7 +132,7 @@ qs_wait softSourceFailed
 cp /tmp/qs-feeds-original /etc/apk/repositories.d/distfeeds.list
 qs_wait netSuccess
 apk update
-apk add kmod-veth
+apk add kmod-veth kmod-dummy
 fw4 check
 ip link add zttest001 type dummy
 ip link set zttest001 up
