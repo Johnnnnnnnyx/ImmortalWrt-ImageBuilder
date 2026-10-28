@@ -26,12 +26,19 @@ on:
         options:
           - "no"
           - "yes"
+      diagnostic_run_id:
+        description: "仅排查已有失败测试磁盘：填运行 ID；留空才构建固件"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
+    if: ${{ inputs.diagnostic_run_id == '' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     steps:
@@ -54,6 +61,7 @@ jobs:
           sh x86-64/test-distfeeds.sh
           node --test x86-64/test-update-ui.js
           python3 x86-64/test-upgrade-readiness.py
+          python3 x86-64/test-retention-evidence.py
           sh -n x86-64/test-ui-layout.sh
           sh -n x86-64/99-zz-bypass
           sh -n x86-64/99-zzz-johnnywrt
@@ -165,11 +173,13 @@ jobs:
           name: firmware-diagnostics-${{ github.run_number }}
           path: |
             bin/targets/x86/64/*.manifest
+            bin/targets/x86/64/*squashfs-combined-efi.img.gz
             bin/targets/x86/64/boot-test.log
             bin/targets/x86/64/upgrade-test.log
             bin/targets/x86/64/upgrade-test-screen.ppm
             bin/targets/x86/64/upgrade-failed.img.gz
             bin/targets/x86/64/profiles.json
+            bin/targets/x86/64/retention-*.json
             iso-boot-catalog.txt
             previous-release/upgrade-test.log
             previous-release/upgrade-test-screen.ppm
@@ -230,3 +240,48 @@ jobs:
             img-installer/output/*.manifest
             img-installer/output/firmware.json
             img-installer/output/SHA256SUMS
+
+  diagnose_saved_upgrade:
+    if: ${{ inputs.diagnostic_run_id != '' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Reuse saved test firmware without compiling or publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIAGNOSTIC_RUN: ${{ inputs.diagnostic_run_id }}
+        run: |
+          case "$DIAGNOSTIC_RUN" in *[!0-9]*|'') exit 1;; esac
+          python3 x86-64/test-upgrade-readiness.py
+          python3 x86-64/test-retention-evidence.py
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 xorriso squashfs-tools
+          python3 -m pip install paramiko==3.5.1
+          number=$(gh run view "$DIAGNOSTIC_RUN" --repo "${{ github.repository }}" --json number --jq .number)
+          gh run download "$DIAGNOSTIC_RUN" --repo "${{ github.repository }}" --name "firmware-diagnostics-$number" --dir saved
+          mkdir -p diagnostic previous-release
+          original=$(find saved/bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
+          if [ -n "$original" ]; then
+            cp "$original" diagnostic/diagnostic-only.img.gz
+          else
+            python3 x86-64/recover-diagnostic-image.py saved/bin/targets/x86/64/upgrade-failed.img.gz diagnostic/diagnostic-only.img.gz
+          fi
+          gh release download Johnnywrt-ISO-25.12.2-5 --repo "${{ github.repository }}" --pattern Johnnywrt-x86_64.iso --pattern SHA256SUMS --dir previous-release
+          (cd previous-release && sha256sum -c SHA256SUMS)
+          xorriso -osirrox on -indev previous-release/Johnnywrt-x86_64.iso -extract /live/filesystem.squashfs previous-release/root.squashfs
+          unsquashfs -cat previous-release/root.squashfs mnt/custom.img > previous-release/base.img
+          python3 x86-64/test-sysupgrade.py previous-release/base.img diagnostic/diagnostic-only.img.gz
+      - name: Save redacted retention evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upgrade-retention-evidence-${{ github.run_number }}
+          path: |
+            diagnostic/retention-*.json
+            diagnostic/upgrade-test.log
+            diagnostic/upgrade-test-screen.ppm
+          retention-days: 7
