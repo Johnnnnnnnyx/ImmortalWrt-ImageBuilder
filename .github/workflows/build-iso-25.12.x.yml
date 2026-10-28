@@ -45,6 +45,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Allocate release identifier shared with VPS builds
+        run: echo "RELEASE_TAG=Johnnywrt-ISO-${{ inputs.luci_version }}-$(date -u +%s)" >> "$GITHUB_ENV"
+
       - name: Set up Go for the pinned QuickStart backend
         uses: actions/setup-go@v6
         with:
@@ -105,7 +108,7 @@ jobs:
             -e INCLUDE_DOCKER="$INCLUDE_DOCKER" \
             -e ENABLE_PPPOE=no -e PPPOE_ACCOUNT= -e PPPOE_PASSWORD= \
             -e BUILD_ID="${{ github.sha }}" \
-            -e RELEASE_TAG="Johnnywrt-ISO-${{ inputs.luci_version }}-${{ github.run_number }}" \
+            -e RELEASE_TAG="$RELEASE_TAG" \
             -e CUSTOM_BYPASS=1 \
             "immortalwrt/imagebuilder:x86-64-openwrt-$VERSION" \
             /bin/bash /home/build/immortalwrt/build.sh
@@ -145,7 +148,6 @@ jobs:
         env:
           VERSION: ${{ inputs.luci_version }}
           SIZE: ${{ inputs.profile }}
-          RELEASE_TAG: Johnnywrt-ISO-${{ inputs.luci_version }}-${{ github.run_number }}
         run: |
           iso=img-installer/output/custom-installer-x86_64.iso
           test -s "$iso"
@@ -229,7 +231,7 @@ jobs:
       - name: Publish verified firmware
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: Johnnywrt-ISO-${{ inputs.luci_version }}-${{ github.run_number }}
+          tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
           name: Johnnywrt ${{ inputs.luci_version }} UEFI Install + Upgrade (${{ github.run_number }})
           body_path: router-info.md
