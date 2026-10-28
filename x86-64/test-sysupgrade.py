@@ -22,6 +22,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('base', type=Path)
 parser.add_argument('image', type=Path)
 parser.add_argument('--machine', choices=('pc', 'q35'), default='pc')
+parser.add_argument('--accel', choices=('tcg', 'kvm'), default='tcg')
 parser.add_argument('--reboot-only', action='store_true')
 args = parser.parse_args()
 base, image = args.base.resolve(), args.image.resolve()
@@ -35,7 +36,7 @@ log = (image.parent / 'upgrade-test.log').open('wb')
 monitor_path = image.parent / 'upgrade-monitor.sock'
 completed = False
 qemu = subprocess.Popen([
-    'qemu-system-x86_64', '-machine', args.machine, '-m', '1024', '-smp', '2',
+    'qemu-system-x86_64', '-accel', args.accel, '-machine', args.machine, '-m', '1024', '-smp', '2',
     # Match deployed i440FX/BIOS machines; smoke-test25 covers q35/UEFI.
     '-drive', f'file={disk},format=raw,if=virtio',
     '-netdev', 'user,id=lan,hostfwd=tcp:127.0.0.1:22222-:22',
@@ -82,12 +83,17 @@ def wait_ssh(previous_boot=None):
             client = connect()
             boot = run(client, 'cat /proc/sys/kernel/random/boot_id').strip()
             state = run(client, 'readlink /overlay/.fs_state').strip()
-            last_status = f'boot changed={boot != previous_boot}, overlay state={state}'
+            ports = run(client, 'uci -q get network.@device[0].ports').split()
+            pending = run(client, 'uci changes network', sensitive=True).strip()
+            network_ready = 'dheth0' in ports and not pending
+            last_status = f'boot changed={boot != previous_boot}, overlay state={state}, QuickStart ready={network_ready}'
             # S95done marks FS_STATE_READY=2 after initial filesystem setup.
             # Rebooting earlier lets fstools clear the pending overlay next boot.
-            if (previous_boot is None or boot != previous_boot) and state == '2':
+            # QuickStart commits its DHCP helper bridge port after overlay setup.
+            # This fixture uses its DHCP-client LAN; wait before recording hashes.
+            if (previous_boot is None or boot != previous_boot) and state == '2' and network_ready:
                 run(client, 'sync')
-                print(f'PASS: SSH and overlay ready after {time.monotonic() - started:.0f}s', flush=True)
+                print(f'PASS: SSH, overlay and QuickStart ready after {time.monotonic() - started:.0f}s', flush=True)
                 return client
             client.close()
         except (OSError, EOFError, paramiko.SSHException, RuntimeError) as error:
@@ -98,7 +104,7 @@ def wait_ssh(previous_boot=None):
             print(f'Waiting for guest ({time.monotonic() - started:.0f}s): {last_status}', flush=True)
             next_report = time.monotonic() + 30
         time.sleep(3)
-    raise RuntimeError('SSH and overlay did not become ready: ' + last_status)
+    raise RuntimeError('SSH, overlay and QuickStart did not become ready: ' + last_status)
 
 
 def retention_snapshot(client, paths, phase):
@@ -116,7 +122,7 @@ def retention_snapshot(client, paths, phase):
         accounts[name] = hashlib.sha256(value.encode()).hexdigest()
     snapshot = {'files': sums, 'uci_fields': fields, 'shadow_accounts': accounts,
                 'uptime': run(client, 'cut -d " " -f 1 /proc/uptime').strip(),
-                'mtime': run(client, "stat -c '%Y %n' " + ' '.join(paths)).splitlines(),
+                'file_metadata': run(client, 'ls -ln ' + ' '.join(paths)).splitlines(),
                 'pending_uci_keys': [line.partition('=')[0] for line in run(client, 'uci changes', sensitive=True).splitlines()
                                      if line.lstrip('-').startswith(('network.', 'meowx.', 'zerotier.'))]}
     (image.parent / f'retention-{phase}.json').write_text(json.dumps(snapshot, indent=2))
@@ -186,7 +192,6 @@ test -s /etc/zerotier/identity.secret
     baseline = retention_snapshot(client, retained, 'baseline')
     # Round 1 validates old -> new; round 2 validates the new upgrade baseline.
     for round_number in (1, 2):
-        retention_snapshot(client, retained, f'round-{round_number}-before')
         backup_list = run(client, 'sysupgrade -l').splitlines()
         for path in retained:
             assert path in backup_list, f'Not preserved by sysupgrade: {path}'
@@ -194,6 +199,10 @@ test -s /etc/zerotier/identity.secret
         if round_number == 2:
             run(client, 'sh /tmp/test-update-metadata.sh /usr/libexec/johnny-update /tmp/upgrade.img.gz')
         run(client, 'sysupgrade -T /tmp/upgrade.img.gz')
+        before = retention_snapshot(client, retained, f'round-{round_number}-before')
+        changed = [path for path in retained if before['files'][path] != baseline['files'][path]]
+        assert not changed, 'Settings changed before flashing: ' + ', '.join(changed)
+        assert not before['pending_uci_keys'], 'Pending configuration changes before flashing'
         boot = run(client, 'cat /proc/sys/kernel/random/boot_id').strip()
         run(client, "(trap '' HUP; sleep 2; sysupgrade /tmp/upgrade.img.gz) >/tmp/upgrade.log 2>&1 </dev/null &")
         client.close()

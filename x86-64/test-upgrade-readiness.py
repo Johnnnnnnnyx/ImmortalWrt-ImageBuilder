@@ -11,7 +11,7 @@ function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) 
 
 
 class ReadinessTest(unittest.TestCase):
-    def run_wait(self, states, previous_boot=None, ready_after=0):
+    def run_wait(self, states, previous_boot=None, ready_after=0, ports=None, pending=None):
         clock = Mock()
         elapsed = [0]
         clock.monotonic.side_effect = lambda: elapsed[0]
@@ -26,10 +26,14 @@ class ReadinessTest(unittest.TestCase):
             connected.append(client)
             return client
 
-        def run(client, command):
+        def run(client, command, sensitive=False):
             commands.append(command)
+            index = min(len(connected) - 1, len(states) - 1)
             return {'cat /proc/sys/kernel/random/boot_id': 'new-boot',
-                    'readlink /overlay/.fs_state': client.state, 'sync': ''}[command]
+                    'readlink /overlay/.fs_state': client.state,
+                    'uci -q get network.@device[0].ports': ports[index] if ports else 'eth0 dheth0',
+                    'uci changes network': pending[index] if pending else '',
+                    'sync': ''}[command]
 
         namespace = dict(time=clock, paramiko=types.SimpleNamespace(SSHException=ConnectionError),
                          qemu=Mock(poll=lambda: None), connect=connect, run=run, print=Mock())
@@ -47,6 +51,18 @@ class ReadinessTest(unittest.TestCase):
     def test_new_boot_id_still_requires_ready_overlay(self):
         _, connected, _ = self.run_wait(['1', '2'], 'old-boot')
         self.assertEqual(len(connected), 2)
+
+    def test_quickstart_bridge_initialization_finishes_before_baseline(self):
+        _, connected, _ = self.run_wait(['2', '2'], ports=['eth0', 'eth0 dheth0'])
+        self.assertEqual(len(connected), 2)
+
+    def test_pending_network_commit_is_not_a_ready_baseline(self):
+        _, connected, _ = self.run_wait(['2', '2'], pending=['network.@device[0].ports=eth0 dheth0', ''])
+        self.assertEqual(len(connected), 2)
+
+    def test_quickstart_that_never_finishes_is_a_failure(self):
+        with self.assertRaises(RuntimeError):
+            self.run_wait(['2'], ports=['eth0'])
 
     def test_overlay_that_never_finishes_is_a_failure(self):
         with self.assertRaises(RuntimeError):
