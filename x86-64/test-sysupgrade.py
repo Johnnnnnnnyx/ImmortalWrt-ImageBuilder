@@ -58,12 +58,13 @@ def connect():
     return client
 
 
-def run(client, command):
+def run(client, command, sensitive=False):
     _, out, err = client.exec_command(command, timeout=90)
     result = out.read().decode()
     errors = err.read().decode()
     if out.channel.recv_exit_status() != 0:
-        raise RuntimeError(f'Guest check failed: {command}\n{result}\n{errors}')
+        detail = '' if sensitive else f'\n{result}\n{errors}'
+        raise RuntimeError(f'Guest check failed: {command}{detail}')
     return result
 
 
@@ -104,19 +105,19 @@ def retention_snapshot(client, paths, phase):
     sums = dict(line.split(maxsplit=1)[::-1] for line in run(client, 'sha256sum ' + ' '.join(paths)).splitlines())
     # Record names and hashes only: never put passwords or identity keys in logs.
     fields = {}
-    for line in run(client, 'uci -q show network; uci -q show meowx; uci -q show zerotier').splitlines():
+    for line in run(client, 'uci -q show network; uci -q show meowx; uci -q show zerotier', sensitive=True).splitlines():
         if '=' not in line or not line.startswith(('network.', 'meowx.', 'zerotier.')):
             continue
         name, _, value = line.partition('=')
         fields[name] = hashlib.sha256(value.encode()).hexdigest()
     accounts = {}
-    for line in run(client, 'cat /etc/shadow').splitlines():
+    for line in run(client, 'cat /etc/shadow', sensitive=True).splitlines():
         name, _, value = line.partition(':')
         accounts[name] = hashlib.sha256(value.encode()).hexdigest()
     snapshot = {'files': sums, 'uci_fields': fields, 'shadow_accounts': accounts,
                 'uptime': run(client, 'cut -d " " -f 1 /proc/uptime').strip(),
                 'mtime': run(client, "stat -c '%Y %n' " + ' '.join(paths)).splitlines(),
-                'pending_uci_keys': [line.partition('=')[0] for line in run(client, 'uci changes').splitlines()
+                'pending_uci_keys': [line.partition('=')[0] for line in run(client, 'uci changes', sensitive=True).splitlines()
                                      if line.lstrip('-').startswith(('network.', 'meowx.', 'zerotier.'))]}
     (image.parent / f'retention-{phase}.json').write_text(json.dumps(snapshot, indent=2))
     return snapshot
