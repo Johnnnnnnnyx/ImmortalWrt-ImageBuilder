@@ -53,6 +53,7 @@ jobs:
           sh x86-64/test-custom25.sh
           sh x86-64/test-distfeeds.sh
           node --test x86-64/test-update-ui.js
+          python3 x86-64/test-upgrade-readiness.py
           sh -n x86-64/test-ui-layout.sh
           sh -n x86-64/99-zz-bypass
           sh -n x86-64/99-zzz-johnnywrt
