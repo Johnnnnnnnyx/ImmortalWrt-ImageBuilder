@@ -68,19 +68,28 @@ def run(client, command):
 
 def wait_ssh(previous_boot=None):
     deadline = time.monotonic() + 240
+    last_status = 'No successful SSH connection yet'
     while time.monotonic() < deadline:
         if qemu.poll() is not None:
             raise RuntimeError('QEMU stopped unexpectedly')
+        client = None
         try:
             client = connect()
             boot = run(client, 'cat /proc/sys/kernel/random/boot_id').strip()
-            if previous_boot is None or boot != previous_boot:
+            state = run(client, 'readlink /overlay/.fs_state').strip()
+            last_status = f'boot changed={boot != previous_boot}, overlay state={state}'
+            # S95done marks FS_STATE_READY=2 after initial filesystem setup.
+            # Rebooting earlier lets fstools clear the pending overlay next boot.
+            if (previous_boot is None or boot != previous_boot) and state == '2':
+                run(client, 'sync')
                 return client
             client.close()
-        except (OSError, EOFError, paramiko.SSHException, RuntimeError):
-            pass
+        except (OSError, EOFError, paramiko.SSHException, RuntimeError) as error:
+            last_status = f'{type(error).__name__}: {error}'
+            if client is not None:
+                client.close()
         time.sleep(3)
-    raise RuntimeError('SSH did not recover after boot/upgrade')
+    raise RuntimeError('SSH and overlay did not become ready: ' + last_status)
 
 
 try:
