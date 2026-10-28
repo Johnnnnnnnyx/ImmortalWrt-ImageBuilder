@@ -1,0 +1,15 @@
+# Johnnywrt maintenance instructions
+
+Read `MAINTENANCE.md` before changing this firmware. These notes make the build maintainable from a new computer or conversation; they do not replace the user's current request.
+
+- The customized firmware is on branch `Johnny`. `master` is the original upstream ImageBuilder workflow and does not contain the Johnnywrt customizations. Start from `Johnny` or the latest verified Johnnywrt release, never overwrite it with upstream `master`.
+- Prefer the latest **stable** ImmortalWrt release and its matching kernel/modules. The user explicitly chose stable over snapshots on 2026-10-28. Check upstream again for future builds; never independently replace the kernel or falsify release metadata.
+- Target x86/64, UEFI, SquashFS, 1024 MiB rootfs for compatibility with the current installation. Preserve partition layout for normal upgrades. Provide both a UEFI-capable fresh-install ISO and the EFI combined `.img.gz` usable for direct disk installation and LuCI sysupgrade.
+- Include current signed **OpenWrt** MeowX packages and core from the vendor feed. Desktop/Android app version numbers are not OpenWrt package versions. Keep MeowX, ZeroTier, iStore, QuickStart, Aurora, offline dashboard and geodata.
+- Preserve the native Dropbear `-z` SSH compatibility fix on fresh boots and retained-settings upgrades. Do not embed site-specific nftables rules or change password authentication, keys, ports, or listener bindings to solve this issue.
+- Keep network, MeowX subscriptions and ZeroTier identity/configuration during retained-settings upgrades; verify in a disposable VM. No private site data, credentials, node URLs or keys in code, images, CI logs or releases.
+- Run shell regression checks, existing QEMU smoke tests, actual SSH authentication, and retained-settings old-to-new plus new-to-new upgrade tests before publishing. Check the exact final artifact with `sysupgrade -T` on the intended router when access is authorized. That command validates only; it must not flash.
+- Retain previous releases for recovery. Publish checksums, package manifest, source revision and clear fresh-install versus upgrade instructions. Do not claim arbitrary future major-version compatibility.
+- Keep the LuCI online updater fixed to this repository. Accept only stable 25.12-series EFI SquashFS images with matching root partition size; verify SHA256 and sysupgrade -T before allowing an explicitly confirmed, configuration-preserving flash. Do not accept arbitrary URLs or enable automatic unattended flashing.
+- Building/releasing an image does not authorize flashing a running router. Obtain explicit flashing instructions before interrupting it.
+- Keep changes surgical and record results and any remaining limitations in `MAINTENANCE.md` / release notes.
