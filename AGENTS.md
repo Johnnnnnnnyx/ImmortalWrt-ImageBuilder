@@ -1,6 +1,8 @@
 # Johnnywrt maintenance instructions
 
-Read `MAINTENANCE.md` before changing this firmware. These notes make the build maintainable from a new computer or conversation; they do not replace the user's current request.
+**Before editing firmware, starting or rerunning a build, or publishing a release, read this entire file and `MAINTENANCE.md`, including its pre-build checklist and known test dependencies. Do not rely only on earlier chat context.** These notes make the build maintainable from a new computer or conversation; they do not replace the user's current request.
+
+Check the latest failed Actions run before retrying. Record each confirmed failure cause and its necessary fix in `MAINTENANCE.md`; fix the cause and rerun the relevant checks. Never bypass a failing test just to publish an image.
 
 - The customized firmware is on branch `Johnny`. `master` is the original upstream ImageBuilder workflow and does not contain the Johnnywrt customizations. Start from `Johnny` or the latest verified Johnnywrt release, never overwrite it with upstream `master`.
 - Prefer the latest **stable** ImmortalWrt release and its matching kernel/modules. The user explicitly chose stable over snapshots on 2026-10-28. Check upstream again for future builds; never independently replace the kernel or falsify release metadata.

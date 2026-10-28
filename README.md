@@ -1,6 +1,10 @@
 # [新手指导](https://github.com/wukongdaily/AutoBuildImmortalWrt/wiki) 👈🏻
 # ImmortalWrt-ImageBuilder
 
+## Johnnywrt 定制固件维护入口
+
+本仓库的定制固件位于 **Johnny 分支**。AI 或人工在修改、构建、重跑失败任务和发布前，必须先读 [AGENTS.md](AGENTS.md) 与 [MAINTENANCE.md](MAINTENANCE.md)，按其中的构建前清单和已知问题核对。升级文件选择、保留配置要求和 BIOS/UEFI 兼容边界也记录在维护说明中。
+
 **⚠️ 重要声明**
 
 > **本项目为个人独立维护的第三方项目(脚本)，与 ImmortalWrt 官方没有关联。** <br>
