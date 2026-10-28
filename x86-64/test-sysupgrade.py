@@ -3,6 +3,7 @@
 import argparse
 import functools
 import gzip
+import hashlib
 import http.server
 import json
 import os
@@ -99,6 +100,28 @@ def wait_ssh(previous_boot=None):
     raise RuntimeError('SSH and overlay did not become ready: ' + last_status)
 
 
+def retention_snapshot(client, paths, phase):
+    sums = dict(line.split(maxsplit=1)[::-1] for line in run(client, 'sha256sum ' + ' '.join(paths)).splitlines())
+    # Record names and hashes only: never put passwords or identity keys in logs.
+    fields = {}
+    for line in run(client, 'uci -q show network; uci -q show meowx; uci -q show zerotier').splitlines():
+        if '=' not in line or not line.startswith(('network.', 'meowx.', 'zerotier.')):
+            continue
+        name, _, value = line.partition('=')
+        fields[name] = hashlib.sha256(value.encode()).hexdigest()
+    accounts = {}
+    for line in run(client, 'cat /etc/shadow').splitlines():
+        name, _, value = line.partition(':')
+        accounts[name] = hashlib.sha256(value.encode()).hexdigest()
+    snapshot = {'files': sums, 'uci_fields': fields, 'shadow_accounts': accounts,
+                'uptime': run(client, 'cut -d " " -f 1 /proc/uptime').strip(),
+                'mtime': run(client, "stat -c '%Y %n' " + ' '.join(paths)).splitlines(),
+                'pending_uci_keys': [line.partition('=')[0] for line in run(client, 'uci changes').splitlines()
+                                     if line.lstrip('-').startswith(('network.', 'meowx.', 'zerotier.'))]}
+    (image.parent / f'retention-{phase}.json').write_text(json.dumps(snapshot, indent=2))
+    return snapshot
+
+
 try:
     # Configure a test-only password through the serial console of the old image.
     selector = selectors.DefaultSelector()
@@ -159,9 +182,10 @@ test -s /etc/zerotier/identity.secret
                 '/etc/zerotier/identity.secret',
                 '/etc/zerotier/networks.d/0123456789abcdef.local.conf',
                 '/etc/meowx/subscriptions/upgrade-test.yaml']
-    baseline = run(client, 'sha256sum ' + ' '.join(retained))
+    baseline = retention_snapshot(client, retained, 'baseline')
     # Round 1 validates old -> new; round 2 validates the new upgrade baseline.
     for round_number in (1, 2):
+        retention_snapshot(client, retained, f'round-{round_number}-before')
         backup_list = run(client, 'sysupgrade -l').splitlines()
         for path in retained:
             assert path in backup_list, f'Not preserved by sysupgrade: {path}'
@@ -173,7 +197,9 @@ test -s /etc/zerotier/identity.secret
         run(client, "(trap '' HUP; sleep 2; sysupgrade /tmp/upgrade.img.gz) >/tmp/upgrade.log 2>&1 </dev/null &")
         client.close()
         client = wait_ssh(boot)
-        assert run(client, 'sha256sum ' + ' '.join(retained)) == baseline, 'Retained settings changed'
+        actual = retention_snapshot(client, retained, f'round-{round_number}-after')
+        changed = [path for path in retained if actual['files'][path] != baseline['files'][path]]
+        assert not changed, 'Retained settings changed: ' + ', '.join(changed)
         with client.open_sftp() as sftp:
             sftp.put(str(Path(__file__).with_name('test-update-metadata.sh')), '/tmp/test-update-metadata.sh')
             sftp.put(str(Path(__file__).with_name('test-ui-layout.sh')), '/tmp/test-ui-layout.sh')
