@@ -14,7 +14,7 @@
 ## 文件选择与 UEFI 全新安装
 
 - `Johnnywrt-x86_64.iso`：UEFI 全新安装器。新建虚拟机选择 UEFI/OVMF，准备至少 8 GB 磁盘，挂载 ISO，启动后执行 `ddd` 选择安装盘；安装完成后卸载 ISO，再从硬盘 UEFI 启动。安装会清空所选磁盘。
-- `immortalwrt-…-x86-64-generic-squashfs-combined-efi.img.gz`：UEFI 硬盘固件。既用于网页升级，也可以解压为 `.img` 后直接写入新磁盘/导入虚拟机磁盘，再用 UEFI 启动。
+- `Johnnywrt-x86_64-squashfs-combined-efi.img.gz`：EFI/GPT 硬盘固件。既用于网页升级，也可以解压为 `.img` 后直接写入新磁盘/导入虚拟机磁盘，再用 UEFI 启动。
 - 镜像支持普通 UEFI；没有承诺 Secure Boot 签名支持。
 - 每次发布附 `SHA256SUMS` 与 `.manifest`。ISO 内嵌的固件必须与通过测试的 `.img.gz` 解压内容一致。
 
@@ -27,7 +27,7 @@
 构建流程固定 1G 以兼容当前部署。更新状态和下载仅在 `/tmp/johnny-update`，重启后清除；API 限速/网络错误会显示错误，可再次检查。旧版尚无此入口，第一次使用下面的手动网页升级流程。
 
 1. 在系统的备份页面下载配置备份，虚拟机另外做磁盘快照。
-2. 确认当前是 x86/64、UEFI、SquashFS，并选择相同分区布局的版本（当前 32 MiB 引导分区、1024 MiB 根分区）。
+2. 确认当前是 x86/64、EFI/GPT 磁盘、SquashFS，并选择相同分区布局的版本（当前 32 MiB 引导分区、1024 MiB 根分区）。现有设备可继续沿用已验证的 BIOS 启动方式，升级时不要同时更改虚拟机启动方式。
 3. 在“系统 → 备份/升级 → 更新固件”上传 `squashfs-combined-efi.img.gz`，**不要上传 ISO**。
 4. 保留配置；系统校验不通过时不要强制刷写。自装插件不会自动全部保留，内置插件由新镜像重新提供。
 5. 升级后检查 LAN、SSH、MeowX DNS/节点、ZeroTier。不要把能上传或 `sysupgrade -T` 通过等同于完整升级验证。
