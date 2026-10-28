@@ -65,7 +65,7 @@ def wait_ssh(previous_boot=None):
             if previous_boot is None or boot != previous_boot:
                 return client
             client.close()
-        except (OSError, paramiko.SSHException, RuntimeError):
+        except (OSError, EOFError, paramiko.SSHException, RuntimeError):
             pass
         time.sleep(3)
     raise RuntimeError('SSH did not recover after boot/upgrade')
