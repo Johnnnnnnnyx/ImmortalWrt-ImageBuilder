@@ -1,5 +1,6 @@
 #!/bin/sh
 # Run after packaged defaults, including on settings-preserving upgrades.
+sh /usr/libexec/johnny-ssh-qos || exit 1
 sh /usr/libexec/johnny-fix-distfeeds
 case "$(uci -q get system.@imm_init[0].apk_mirror)" in
     http://downloads.openwrt.org|https://downloads.openwrt.org|https://mirrors.cernet.edu.cn/openwrt|https://mirrors.vsean.net/openwrt|https://mirrors.sustech.edu.cn/openwrt|https://mirrors.tuna.tsinghua.edu.cn/openwrt|https://mirrors.ustc.edu.cn/openwrt|https://mirrors.aliyun.com/openwrt|https://mirrors.cloud.tencent.com/openwrt)

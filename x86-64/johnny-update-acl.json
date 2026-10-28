@@ -1,0 +1,17 @@
+{
+  "johnny-update": {
+    "description": "Check and apply verified Johnnywrt firmware from its fixed repository",
+    "read": {
+      "ubus": { "file": [ "exec" ] },
+      "file": { "/usr/libexec/johnny-update status": [ "exec" ] }
+    },
+    "write": {
+      "ubus": { "file": [ "exec" ] },
+      "file": {
+        "/usr/libexec/johnny-update check": [ "exec" ],
+        "/usr/libexec/johnny-update download": [ "exec" ],
+        "/usr/libexec/johnny-update flash": [ "exec" ]
+      }
+    }
+  }
+}

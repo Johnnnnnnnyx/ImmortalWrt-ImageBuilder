@@ -1,0 +1,13 @@
+#!/bin/sh
+# Disable only SSH IP priority marking. Authentication and bindings stay intact.
+set -eu
+file=${1:-/etc/init.d/dropbear}
+old='procd_set_param command "$PROG" -F -P "$pid_file"'
+new='procd_set_param command "$PROG" -F -z -P "$pid_file"'
+grep -Fq "$new" "$file" && exit 0
+grep -Fq "$old" "$file" || {
+    echo 'Unsupported Dropbear init: SSH QoS fix not applied' >&2
+    exit 1
+}
+sed -i 's/procd_set_param command "$PROG" -F -P "$pid_file"/procd_set_param command "$PROG" -F -z -P "$pid_file"/' "$file"
+grep -Fq "$new" "$file"

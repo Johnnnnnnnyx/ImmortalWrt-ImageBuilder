@@ -79,11 +79,19 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   cp custom25/99-zz-bypass files/etc/uci-defaults/99-zz-bypass
   cp custom25/99-zzz-johnnywrt files/etc/uci-defaults/99-zzz-johnnywrt
   mkdir -p files/usr/libexec files/etc/nftables.d files/usr/share/nftables.d/chain-pre/srcnat files/www/luci-static/aurora/images
-  cp custom25/johnny-fix-distfeeds custom25/johnny-zt-nat files/usr/libexec/
+  cp custom25/johnny-fix-distfeeds custom25/johnny-zt-nat custom25/johnny-ssh-qos files/usr/libexec/
+  printf '%s\n' "${BUILD_ID:-development}" > files/etc/johnnywrt-build
+  printf '%s\n' "${RELEASE_TAG:-development}" > files/etc/johnnywrt-release
+  cp custom25/johnny-update files/usr/libexec/
+  chmod 755 files/usr/libexec/johnny-update
+  mkdir -p files/www/luci-static/resources/view/system files/usr/share/luci/menu.d files/usr/share/rpcd/acl.d
+  cp custom25/johnny-update.js files/www/luci-static/resources/view/system/
+  cp custom25/johnny-update-menu.json files/usr/share/luci/menu.d/johnny-update.json
+  cp custom25/johnny-update-acl.json files/usr/share/rpcd/acl.d/johnny-update.json
   cp custom25/30-johnny-zt-lan.nft files/etc/nftables.d/
   printf 'jump johnny_zt_lan\n' > files/usr/share/nftables.d/chain-pre/srcnat/30-johnny-zt-lan.nft
   cp custom25/johnnywrt.svg files/www/luci-static/aurora/images/johnnywrt.svg
-  chmod 755 files/usr/libexec/johnny-fix-distfeeds files/usr/libexec/johnny-zt-nat files/etc/uci-defaults/99-zzz-johnnywrt
+  chmod 755 files/usr/libexec/johnny-fix-distfeeds files/usr/libexec/johnny-zt-nat files/usr/libexec/johnny-ssh-qos files/etc/uci-defaults/99-zzz-johnnywrt
   # The shared defaults rewrite LAN/WAN even after a settings-preserving upgrade.
   printf '#!/bin/sh\nexit 0\n' > files/etc/uci-defaults/99-custom.sh
   # This shell fragment is unnecessary here and is not a valid UCI config.

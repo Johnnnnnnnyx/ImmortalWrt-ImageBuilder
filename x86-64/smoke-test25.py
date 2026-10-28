@@ -18,6 +18,9 @@ with gzip.open(image, "rb") as source, disk.open("wb") as target:
 # This guest is disposable: the downloadable compressed image is never modified.
 checks = r'''
 set -ex
+grep -F ' -F -z -P ' /etc/init.d/dropbear
+pid=$(cat /var/run/dropbear.*.pid | head -1)
+tr '\0' ' ' < "/proc/$pid/cmdline" | grep ' -z '
 test "$(uci get system.@system[0].hostname)" = Johnnywrt
 grep "DISTRIB_ID='ImmortalWrt'" /etc/openwrt_release
 # LuCI deliberately serves the unauthenticated login page with HTTP 403.

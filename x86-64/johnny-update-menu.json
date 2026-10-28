@@ -1,0 +1,8 @@
+{
+  "admin/system/johnny-update": {
+    "title": "Johnnywrt 在线更新",
+    "order": 69,
+    "action": { "type": "view", "path": "system/johnny-update" },
+    "depends": { "acl": [ "johnny-update" ] }
+  }
+}

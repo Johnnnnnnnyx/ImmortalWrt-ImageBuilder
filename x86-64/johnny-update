@@ -1,0 +1,137 @@
+#!/bin/sh
+# Fixed-repository updater. Never execute downloaded content or accept a URL.
+set -e
+. /lib/functions.sh
+. /usr/share/libubox/jshn.sh
+repo='https://github.com/Johnnnnnnnyx/ImmortalWrt-ImageBuilder'
+api='https://api.github.com/repos/Johnnnnnnnyx/ImmortalWrt-ImageBuilder/releases/latest'
+work=/tmp/johnny-update
+image=Johnnywrt-x86_64-squashfs-combined-efi.img.gz
+mkdir -p "$work"
+chmod 700 "$work"
+current=$(cat /rom/etc/johnnywrt-release 2>/dev/null || echo unknown)
+latest=''
+available=0
+
+state() {
+    json_init
+    json_add_string state "$1"
+    json_add_string message "$2"
+    json_add_string current "$current"
+    json_add_string latest "$latest"
+    json_add_boolean available "$available"
+    json_add_string repository "$repo/releases"
+    json_dump > "$work/status.new"
+    mv "$work/status.new" "$work/status.json"
+}
+fail() {
+    # Free a failed/partial download before writing status on a RAM-backed /tmp.
+    rm -f "$work/ready" "$work/$image.part" "$work/$image"
+    state error "$1"
+    exit 1
+}
+fetch() { curl -fLsS --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 45 --retry 2 "$1" -o "$2"; }
+validate_metadata() {
+    . /etc/openwrt_release
+    [ "$DISTRIB_TARGET" = x86/64 ] || fail '仅支持 x86/64'
+    [ "$(ubus call system board | jsonfilter -e '@.rootfs_type')" = squashfs ] || fail '仅支持 SquashFS 系统'
+    target=$(jsonfilter -i "$work/firmware.json" -e '@.target')
+    format=$(jsonfilter -i "$work/firmware.json" -e '@.format')
+    version=$(jsonfilter -i "$work/firmware.json" -e '@.version')
+    release=$(jsonfilter -i "$work/firmware.json" -e '@.tag')
+    root_mb=$(jsonfilter -i "$work/firmware.json" -e '@.rootfs_mb')
+    [ "$target" = x86/64 ] && [ "$format" = squashfs-combined-efi ] && [ "$release" = "$latest" ] || fail '固件格式或发布信息不匹配'
+    case "$DISTRIB_RELEASE:$version" in 25.12.*:25.12.*) ;; *) fail '跨系统大版本请使用手动升级并检查迁移说明' ;; esac
+    case "$root_mb" in 1024|2048|3072|4096) ;; *) fail '固件分区大小无效' ;; esac
+    . /lib/upgrade/common.sh
+    export_bootdevice && export_partdevice partdev 2 || fail '无法确认当前系统分区'
+    export_partdevice diskdev 0 && part_magic_efi "/dev/$diskdev" || fail '当前磁盘不采用 EFI/GPT 布局'
+    sectors=$(cat "/sys/class/block/$partdev/size")
+    [ "$sectors" = "$((root_mb * 2048))" ] || fail '新版根分区大小与当前设备不同，请手动处理'
+}
+check() {
+    state checking '正在检查仓库发布…'
+    fetch "$api" "$work/release.json" || fail '无法连接 GitHub，或 API 请求受限，请稍后重试'
+    latest=$(jsonfilter -i "$work/release.json" -e '@.tag_name')
+    printf '%s\n' "$latest" | grep -Eq '^Johnnywrt-ISO-25\.12\.[0-9]+-[0-9]+$' || fail '最新发布不属于兼容的稳定版本'
+    [ "$(jsonfilter -i "$work/release.json" -e '@.prerelease')" = false ] || fail '不接受预发布固件'
+    [ "$(jsonfilter -i "$work/release.json" -e '@.draft')" = false ] || fail '不接受草稿固件'
+    if [ "$latest" = "$current" ]; then state current '已是当前最新版本'; return; fi
+    if printf '%s\n' "$current" | grep -Eq '^Johnnywrt-ISO-25\.12\.[0-9]+-[0-9]+$'; then
+        [ "${latest##*-}" -gt "${current##*-}" ] || { state current '当前版本不早于仓库发布'; return; }
+    fi
+    fetch "$repo/releases/download/$latest/firmware.json" "$work/firmware.json" || fail '该发布没有在线升级信息，请使用手动升级'
+    validate_metadata
+    available=1
+    state available '发现兼容版本，可以下载并校验'
+}
+verify_image() {
+    expected=$(awk -v name="$image" '$2 == name {print $1}' "$work/SHA256SUMS")
+    printf '%s\n' "$expected" | grep -Eq '^[0-9a-f]{64}$' || fail '缺少有效的固件校验值'
+    actual=$(sha256sum "$work/$image" | cut -d ' ' -f 1)
+    [ "$actual" = "$expected" ] || fail '固件 SHA256 校验失败'
+    # x86 sysupgrade -T accepts changed partition tables; prohibit those here.
+    . /lib/upgrade/common.sh
+    export_bootdevice && export_partdevice diskdev 0 || fail '无法确认升级磁盘'
+    get_partitions "/dev/$diskdev" johnny-live || fail '无法读取当前分区表'
+    get_image_dd "$work/$image" of="$work/image.bs" count=63 bs=512b || fail '无法读取固件分区表'
+    get_partitions "$work/image.bs" johnny-image || fail '无法解析固件分区表'
+    [ -s /tmp/partmap.johnny-live ] && [ -s /tmp/partmap.johnny-image ] || fail '分区表为空'
+    difference=$(grep -F -x -v -f /tmp/partmap.johnny-live /tmp/partmap.johnny-image || true)
+    rm -f "$work/image.bs" /tmp/partmap.johnny-live /tmp/partmap.johnny-image
+    [ -z "$difference" ] || fail '固件分区位置或大小与当前磁盘不同，已拒绝自动升级'
+    sysupgrade -T "$work/$image" > "$work/validation.log" 2>&1 || fail '系统固件兼容性检查失败，请勿强制升级'
+}
+download() {
+    check
+    [ "$available" = 1 ] || return
+    state downloading '正在下载并校验固件，请勿关闭路由器…'
+    fetch "$repo/releases/download/$latest/SHA256SUMS" "$work/SHA256SUMS" || fail '下载校验文件失败'
+    curl -fLsS --proto '=https' --proto-redir '=https' --connect-timeout 15 --max-time 900 --max-filesize 536870912 --retry 2 \
+        "$repo/releases/download/$latest/$image" -o "$work/$image.part" || fail '固件下载失败，请检查网络和可用内存'
+    mv "$work/$image.part" "$work/$image"
+    verify_image
+    printf '%s\n' "$latest" > "$work/ready"
+    state ready '下载与校验通过。确认后将保留配置升级并重启'
+}
+case "${1:-status}" in
+    status)
+        if [ -s "$work/status.json" ]; then cat "$work/status.json"; else state idle '点击检查更新'; cat "$work/status.json"; fi
+        ;;
+    check|download)
+        mkdir "$work/lock" 2>/dev/null || { echo '另一个更新操作正在进行' >&2; exit 1; }
+        rm -f "$work/ready" "$work/$image" "$work/$image.part"
+        state checking '正在准备…'
+        (trap '' HUP; "$0" "worker-$1") > "$work/worker.log" 2>&1 </dev/null &
+        ;;
+    worker-check|worker-download)
+        finish_worker() {
+            code=$?
+            rm -f "$work/$image.part"
+            rmdir "$work/lock"
+            if [ "$code" -ne 0 ] && ! grep -q '"state": "error"' "$work/status.json"; then
+                state error '更新处理失败，请稍后重试或查看 /tmp/johnny-update/worker.log' || true
+            fi
+        }
+        trap finish_worker EXIT
+        if [ "$1" = worker-check ]; then check; else download; fi
+        ;;
+    flash)
+        mkdir "$work/lock" 2>/dev/null || exit 1
+        trap 'rmdir "$work/lock"' EXIT
+        [ -s "$work/ready" ] || fail '请先下载并校验固件'
+        latest=$(cat "$work/ready")
+        validate_metadata
+        verify_image
+        rm -f "$work/ready"
+        state flashing '正在保留配置升级，即将重启，请勿断电'
+        # Keep the lock until reboot; no check/download may overwrite this image.
+        trap - EXIT
+        (trap '' HUP; sleep 3
+         if ! /sbin/sysupgrade "$work/$image"; then
+             state error '升级执行失败，请查看系统日志'
+             rmdir "$work/lock"
+         fi) > "$work/upgrade.log" 2>&1 </dev/null &
+        ;;
+    *) echo 'Unsupported action' >&2; exit 1 ;;
+esac
