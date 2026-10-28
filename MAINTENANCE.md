@@ -21,6 +21,9 @@
 
 ### 已确认的问题与必要依赖
 
+- 第 12 次在旧到新升级等待 441 秒后恢复 SSH/overlay，但随后 `Retained settings changed`。因此不能把未通过项全部归因于等待时限，更不能据此称固件升级兼容性已通过。旧测试未保存逐文件 expected/actual，失败盘无法反推内存中的 baseline，这是诊断缺口。新增 baseline、每轮刷写前/恢复后文件哈希、UCI 字段哈希、shadow 各账号行哈希、mtime 和待提交 UCI 键；不记录密码/私钥值，也不重置 baseline 消除差异。用户要求：先定位差异来源并复现通过，再启动新的完整构建。
+- 工作流 `diagnostic_run_id` 非空时，只复用该运行的测试镜像执行专项诊断，构建/发布 job 不运行且诊断 job 仅有读取权限。今后失败工件同时保存原始干净升级包，避免排查测试脚本时重复编译。旧工件只有失败磁盘时可清空其一次性 overlay 复用 ROM/GPT；恢复工具已用 #9 干净镜像验证解压内容完全不变，派生镜像只供诊断、不得发布。
+
 - 第 11 次已通过编译、UEFI 启动、旧版普通重启及旧到新升级；第二轮新到新在 SSH 等待 240 秒后失败。串口确认两次写盘均完成，第二次已进入 Linux/procd，但截止时尚未启动 LAN。第一轮从下载到完成检查耗时约 253 秒，原时限包含约 90 秒的 1 GiB 写盘与后续启动，余量不足。下一轮将一次性 TCG 虚拟机的等待上限改为 600 秒，并每 30 秒记录状态、成功时记录实际耗时，以验证超时假设；仍必须满足新 boot ID、实际 SSH 认证、overlay 状态 2、配置与服务检查，持续未就绪必须失败。未经下一轮完整结果，不得称此问题已修复或归因于真实设备；不因此更改固件内核、网络或磁盘布局。
 
 - 第 10 次构建通过编译和 UEFI 启动，但在第二次启动旧版 #5 的普通重启基线失败，尚未刷入新版。串口显示系统已正常启动，同时出现 `overlay filesystem has not been fully initialized yet`。测试此前只等 SSH 可登录就重启；OpenWrt 的 S95done 才标记 `/overlay/.fs_state -> 2`，fstools 下次启动会清理未就绪的 overlay，测试密码因此无法保留。`wait_ssh()` 必须同时检查新 boot ID（重启时）、实际 SSH 认证、overlay 状态为 2，并同步磁盘后才允许重启/升级；不能以固定等待 65 秒或端口打开代替。新增 `test-upgrade-readiness.py` 已先复现提前返回，再验证就绪等待和超时失败。此问题不同于之前 Q35 停在 BIOS 的症状，也不是 UEFI 镜像或新菜单导致。上游依据：[启动完成处理](https://github.com/openwrt/openwrt/blob/openwrt-25.12/package/base-files/files/etc/init.d/done)、[fstools 配置区状态处理](https://github.com/openwrt/fstools/blob/master/libfstools/overlay.c)。
