@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Destructive upgrades ONLY inside a disposable QEMU guest, never a live router."""
+import argparse
 import functools
 import gzip
 import http.server
@@ -16,7 +17,13 @@ import time
 
 import paramiko
 
-base, image = map(lambda p: Path(p).resolve(), sys.argv[1:3])
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('base', type=Path)
+parser.add_argument('image', type=Path)
+parser.add_argument('--machine', choices=('pc', 'q35'), default='pc')
+parser.add_argument('--reboot-only', action='store_true')
+args = parser.parse_args()
+base, image = args.base.resolve(), args.image.resolve()
 disk = image.parent / 'upgrade-test.img'
 shutil.copyfile(base, disk)
 password = 'disposable-upgrade-test'
@@ -27,8 +34,8 @@ log = (image.parent / 'upgrade-test.log').open('wb')
 monitor_path = image.parent / 'upgrade-monitor.sock'
 completed = False
 qemu = subprocess.Popen([
-    'qemu-system-x86_64', '-machine', 'q35', '-m', '1024', '-smp', '2',
-    # The deployed EFI/GPT disks currently boot via BIOS; smoke-test25 covers UEFI.
+    'qemu-system-x86_64', '-machine', args.machine, '-m', '1024', '-smp', '2',
+    # Match deployed i440FX/BIOS machines; smoke-test25 covers q35/UEFI.
     '-drive', f'file={disk},format=raw,if=virtio',
     '-netdev', 'user,id=lan,hostfwd=tcp:127.0.0.1:22222-:22',
     '-device', 'virtio-net-pci,netdev=lan', '-display', 'none',
@@ -115,7 +122,11 @@ try:
     run(client, "(trap '' HUP; sleep 2; reboot) >/tmp/reboot-test.log 2>&1 </dev/null &")
     client.close()
     client = wait_ssh(boot)
-    print('PASS: baseline BIOS reboot and SSH authentication', flush=True)
+    print(f'PASS: baseline BIOS reboot and SSH authentication ({args.machine})', flush=True)
+    if args.reboot_only:
+        client.close()
+        completed = True
+        sys.exit(0)
     run(client, r'''set -e
 /etc/init.d/zerotier stop
 uci set zerotier.global.enabled='0'
