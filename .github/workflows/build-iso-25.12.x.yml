@@ -52,6 +52,8 @@ jobs:
           sh x86-64/test-ssh-qos.sh
           sh x86-64/test-custom25.sh
           sh x86-64/test-distfeeds.sh
+          node --test x86-64/test-update-ui.js
+          sh -n x86-64/test-ui-layout.sh
           sh -n x86-64/99-zz-bypass
           sh -n x86-64/99-zzz-johnnywrt
           sh -n x86-64/johnny-ssh-qos
@@ -183,7 +185,7 @@ jobs:
           ## Johnnywrt UEFI 安装与升级固件 — 基于 ImmortalWrt $VERSION x86-64
 
           - 网页升级：选择 squashfs-combined-efi.img.gz 并保留配置，不要上传 ISO；保持与原设备相同的根分区大小。
-          - 系统 → Johnnywrt 在线更新：固定检查本仓库，下载 SHA256 和系统校验通过后，确认保留配置升级。同系列、同分区布局才允许在线升级，不强制刷写。
+          - 系统 → 备份与更新 → 更新固件 → 在线更新：固定检查本仓库，下载 SHA256 和系统校验通过后，确认保留配置升级。同系列、同分区布局才允许在线升级，不强制刷写。
           - UEFI 全新安装：使用下方 ISO 安装器，或解压 combined-efi.img.gz 后直接写入新磁盘；两种方式均使用 UEFI 启动（不含 Secure Boot 签名保证）。
           - 本版通过 Dropbear 原生 -z 修复 SSH 优先级标记兼容性，首次安装及保留配置升级均生效，不修改认证或绑定。
           - 构建使用当前 MeowX OpenWrt 签名源，插件与核心的实际版本见本发布 manifest；不混用桌面/Android 版本号。
@@ -193,19 +195,19 @@ jobs:
 
           - 虚拟机选择 UEFI 启动，挂载 ISO，并准备至少 8 GB 虚拟硬盘。
           - 启动后输入 ddd，选择目标虚拟硬盘安装；安装完成后卸载 ISO，从硬盘启动。安装会清空所选硬盘。
-          - 默认通过主路由 DHCP 获取管理地址；请在主路由租约列表查找 Johnnywrt。
+          - 默认通过主路由 DHCP 获取管理地址；请在主路由租约列表查找 JohnnyWrt。
           - 自身 DHCP 服务已关闭，物理网口加入 LAN；首次使用只连接一个网口到现有局域网。
           - 用户名 root，初始无密码；首次登录后请设置密码。
           - 内置 MeowX（含核心和中文界面）、ZeroTier、iStore、首页和网络向导；NAS 菜单隐藏。
           - 默认使用 Aurora 1.4.0 主题。
           - 内置 luci-mod-rpc、luci-lib-ipkg 和 luci-compat；LuCI RPC 随 Web 服务启动。系统使用 APK，旧 ipkg RPC 的软件包管理功能仍依赖 opkg，不能据此认定兼容 APK。
-          - 页面默认名称 Johnnywrt，使用原始 Johnny Logo 标签页图标；底层版本信息保持 ImmortalWrt，避免软件源及内核包不匹配。
+          - 默认主机名 JohnnyWrt，保留配置升级保留原有主机名；使用原始 Johnny Logo 标签页图标；底层版本信息保持 ImmortalWrt，避免软件源及内核包不匹配。
           - 软件源校正为 ImmortalWrt 官方源，保留版本号、架构和内核 ABI；构建中实际更新列表并安装匹配内核的测试模块。
           - 修复首页误报“软件源错误”：检测实际 APK 索引，不再访问不存在的 .asc 文件；切换菜单只提供 ImmortalWrt 官方源及中科大 ImmortalWrt 镜像。切换保留当前版本、内核 ABI 和第三方源，并同步保存镜像设置。
           - QuickStart 后端使用固定的 0.13.0 公开源码提交 fa23fc8 加软件源修复，标识 johnny-feeds-1；已运行上游 Go 测试和固件内 API 检查。
           - 已预装 zashboard 3.29.1 完整面板及字体，无需首次打开时下载；导入订阅并启动 MeowX 后可打开面板。
           - 同时内置 GeoIP、GeoSite 和 ASN 数据并校验 SHA256；MeowX 两种地理数据模式已通过下载地址不可用时的配置测试。订阅本身和自定义远程规则仍需联网。
-          - ZeroTier 网络 ID 留空。在 VPN → ZeroTier 的 earth 网络中填写 ID 并保存应用，再到管理中心授权。
+          - ZeroTier 网络 ID 留空。在 服务 → ZeroTier（MeowX 下方）的 earth 网络中填写 ID 并保存应用，再到管理中心授权。
           - ZeroTier 接口自动关联，允许与 LAN 双向转发；仅对 ZeroTier 进入本机直接连接的 IPv4 LAN 的流量做源地址转换，帮助局域网设备回包。防火墙重载及 LAN 改地址后自动刷新。
           - 两地均使用此旁路由时：客户端网关指向本地旁路由，ZeroTier 管理中心配置两地托管路由并授权节点。无需修改主路由，也无需给 NAS 添加回程路由；访问记录中看到的是本地旁路由地址。
           - 不内置个人网络 ID、节点密钥、站点 IP 或密码，不接管 ZeroTier 默认路由或 DNS。保留配置升级时仍保留原有 LAN 与 ZeroTier 设置。
