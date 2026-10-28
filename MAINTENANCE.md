@@ -21,8 +21,10 @@
 
 ### 已确认的问题与必要依赖
 
-- 2026-10-28 第 6 次构建在模拟网卡检查处失败：`ip link add zttest001 type dummy` 报 `Unknown device type`，测试只安装了 `kmod-veth`，缺少 `kmod-dummy`。`smoke-test25.py` 必须在一次性测试虚拟机内安装 **kmod-veth 和 kmod-dummy**，使用当前内核对应的软件源，然后执行模拟 ZeroTier 接口和跨网段回包测试。不要删除测试或把失败当作通过。修复是否有效须看下一次完整运行结果。
+- 2026-10-28 第 6 次构建在模拟网卡检查处失败：`ip link add zttest001 type dummy` 报 `Unknown device type`，测试只安装了 `kmod-veth`，缺少 `kmod-dummy`。`smoke-test25.py` 必须在一次性测试虚拟机内安装 **kmod-veth 和 kmod-dummy**，使用当前内核对应的软件源，然后执行模拟 ZeroTier 接口和跨网段回包测试。补齐后第 7 次完整 UEFI 启动测试已通过。不要删除测试或把失败当作通过。
+- 第 7 次随后在首次 BIOS 保留配置升级后未恢复 SSH；日志显示刷写完成并重启，但没有新的内核输出，尚不能据此确定根因。新增普通重启基线检查、QMP 启动画面和失败虚拟磁盘保存，用来区分 BIOS/GRUB 与虚拟机重启问题。小于 1 MiB 的 GRUB BIOS Boot 分区提示、旧盘已有的备用 GPT 提示，都不能单独当作根因。兼容性仍须等完整升级测试通过；失败磁盘仅含一次性 VM 测试数据，不得换成用户实机磁盘上传。
 - 当前 BusyBox 没有 `chpasswd`、`nohup`：测试密码通过串口向 `passwd` 输入；后台任务使用忽略 HUP 的子进程并重定向输入输出。不要把仅在桌面 Linux 上存在的命令直接搬入路由器。
+- 升级重启时 SSH 握手可能抛出独立的 `EOFError`，不属于 `SSHException` 或 `OSError`。`test-sysupgrade.py` 的重连等待必须同时重试这些临时断连异常；仍须以新的 boot ID、真实登录和配置校验确认升级完成，不能仅凭端口恢复判定成功。
 - `jshn.sh` 不兼容直接开启 `set -u` 的调用方式；在线更新器使用 `set -e`，先加载 `/lib/functions.sh`，再加载 JSON 库。异常退出必须释放锁并清除半成品下载。
 - `sysupgrade -T` 通过并不保证分区布局相同；在线更新还必须核对实际分区起点和大小。仅凭 FAT/GPT 也不能判断当前用 UEFI 启动，现有 BIOS 启动路径必须单独验证。
 - 不把测试设备的密码、网络 ID、订阅、私钥或实际站点配置写进仓库、日志和公共镜像。实机配置备份只留在用户本机。
