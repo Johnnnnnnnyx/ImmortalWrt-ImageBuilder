@@ -21,13 +21,13 @@ set -ex
 grep -F ' -F -z -P ' /etc/init.d/dropbear
 pid=$(cat /var/run/dropbear.*.pid | head -1)
 tr '\0' ' ' < "/proc/$pid/cmdline" | grep ' -z '
-test "$(uci get system.@system[0].hostname)" = Johnnywrt
+test "$(uci get system.@system[0].hostname)" = JohnnyWrt
 grep "DISTRIB_ID='ImmortalWrt'" /etc/openwrt_release
 # LuCI deliberately serves the unauthenticated login page with HTTP 403.
 status=$(curl -sSL -D /tmp/johnny-luci.headers -w '%{http_code}' http://127.0.0.1/cgi-bin/luci/ -o /tmp/johnny-luci.html)
 test "$status" = 403
 grep -i '^X-LuCI-Login-Required: yes' /tmp/johnny-luci.headers
-grep 'Johnnywrt' /tmp/johnny-luci.html
+grep 'JohnnyWrt' /tmp/johnny-luci.html
 grep 'johnnywrt.svg' /tmp/johnny-luci.html
 curl -fsS http://127.0.0.1/luci-static/aurora/images/johnnywrt.svg -o /tmp/johnny-icon.svg
 cmp /tmp/johnny-icon.svg /www/luci-static/aurora/images/johnnywrt.svg
@@ -37,7 +37,7 @@ test -f /usr/lib/lua/luci/model/ipkg.lua
 token=$(curl -fsS -H 'Content-Type: application/json' -d '{"id":1,"method":"login","params":["root",""]}' http://127.0.0.1/cgi-bin/luci/rpc/auth | jsonfilter -e '@.result')
 echo "$token" | grep -Eq '^[0-9a-f]{32}$'
 rpc_hostname=$(curl -fsS -H 'Content-Type: application/json' -d '{"id":2,"method":"get","params":["system","@system[0]","hostname"]}' "http://127.0.0.1/cgi-bin/luci/rpc/uci?auth=$token" | jsonfilter -e '@.result')
-test "$rpc_hostname" = Johnnywrt
+test "$rpc_hostname" = JohnnyWrt
 test "$(uci get luci.main.mediaurlbase)" = /luci-static/aurora
 test -d /www/luci-static/aurora
 test "$(uci get network.lan.proto)" = dhcp
@@ -55,6 +55,12 @@ test -z "$(uci -q get meowx.mixin.ui_name)"
 test -x /usr/sbin/quickstart
 test -f /usr/lib/lua/luci/controller/quickstart.lua
 test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-base.json -e '@["admin/nas"].title')"
+test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/vpn/zerotier"].title')"
+test "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/services/zerotier/config"].action.path')" = zerotier/config
+test -z "$(jsonfilter -i /usr/share/luci/menu.d/johnny-update.json -e '@["admin/system/johnny-update"].title')"
+grep -q johnny_online_update /www/luci-static/resources/view/system/flash.js
+test -s /www/luci-static/resources/johnny/update.js
+sh /tmp/test-ui-layout.sh
 # Profile validation must work even when every geodata URL is unreachable.
 (cd /etc/meowx/run && sha256sum -c geodata.sha256)
 for mode in false true; do
@@ -235,6 +241,9 @@ uname -r
 echo JOHNNY_BOOT_TEST_PASSED
 '''.strip()
 
+layout_test = Path(__file__).with_name('test-ui-layout.sh').read_text(encoding='utf-8')
+checks = "cat > /tmp/test-ui-layout.sh <<'LAYOUT_EOF'\n" + layout_test + "\nLAYOUT_EOF\n" + checks
+
 process = subprocess.Popen(
     ["qemu-system-x86_64", "-machine", "q35", "-m", "512", "-smp", "2",
      "-bios", "/usr/share/OVMF/OVMF_CODE.fd",
@@ -267,7 +276,7 @@ try:
                 activated = True
             # askfirst flushes pending input while starting ash. Wait for ash's
             # actual prompt before sending the checks, otherwise they are lost.
-            if activated and not sent and b"root@Johnnywrt:~# " in output:
+            if activated and not sent and b"root@JohnnyWrt:~# " in output:
                 # A here-document keeps the test marker separate from echoed input.
                 process.stdin.write(("cat > /tmp/check.sh <<'JOHNNY_EOF'\n" + checks +
                                      "\nJOHNNY_EOF\nsh /tmp/check.sh || echo JOHNNY_BOOT_TEST_FAILED\n").encode())

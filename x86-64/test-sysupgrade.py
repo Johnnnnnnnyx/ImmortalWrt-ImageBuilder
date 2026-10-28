@@ -160,7 +160,17 @@ test -s /etc/zerotier/identity.secret
         assert run(client, 'sha256sum ' + ' '.join(retained)) == baseline, 'Retained settings changed'
         with client.open_sftp() as sftp:
             sftp.put(str(Path(__file__).with_name('test-update-metadata.sh')), '/tmp/test-update-metadata.sh')
+            sftp.put(str(Path(__file__).with_name('test-ui-layout.sh')), '/tmp/test-ui-layout.sh')
         run(client, 'sh /tmp/test-update-metadata.sh')
+        run(client, 'sh /tmp/test-ui-layout.sh')
+        menu_fixture = image.parent / 'luci-menu-test'
+        menu_fixture.mkdir(exist_ok=True)
+        with client.open_sftp() as sftp:
+            sftp.get('/www/luci-static/resources/ui.js', str(menu_fixture / 'ui.js'))
+            for name in sftp.listdir('/usr/share/luci/menu.d'):
+                if name.endswith('.json'):
+                    sftp.get('/usr/share/luci/menu.d/' + name, str(menu_fixture / name))
+        subprocess.run(['node', str(Path(__file__).with_name('test-luci-menu.js')), str(menu_fixture)], check=True)
         status = json.loads(run(client, '/usr/libexec/johnny-update status'))
         assert status['state'] == 'idle' and status['current'].startswith('Johnnywrt-ISO-')
         run(client, r'''set -e
@@ -170,7 +180,10 @@ pid=$(cat /var/run/dropbear.*.pid | head -1)
 tr '\0' ' ' < "/proc/$pid/cmdline" | grep ' -z '
 test -s /etc/johnnywrt-build
 test -s /usr/share/rpcd/acl.d/johnny-update.json
-test -s /www/luci-static/resources/view/system/johnny-update.js
+test -s /www/luci-static/resources/johnny/update.js
+grep -q johnny_online_update /www/luci-static/resources/view/system/flash.js
+test "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/services/zerotier/config"].action.path')" = zerotier/config
+test -z "$(jsonfilter -i /usr/share/luci/menu.d/luci-app-zerotier.json -e '@["admin/vpn/zerotier"].title')"
 /usr/bin/meowx-core -t -d /etc/meowx/run -f /etc/meowx/subscriptions/upgrade-test.yaml
 fw4 check
 ''')

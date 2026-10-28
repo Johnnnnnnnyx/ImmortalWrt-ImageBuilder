@@ -83,9 +83,10 @@ if [ "${CUSTOM_BYPASS:-0}" = "1" ]; then
   printf '%s\n' "${BUILD_ID:-development}" > files/etc/johnnywrt-build
   printf '%s\n' "${RELEASE_TAG:-development}" > files/etc/johnnywrt-release
   cp custom25/johnny-update files/usr/libexec/
+  cp custom25/johnny-ui-layout.uc files/usr/libexec/
   chmod 755 files/usr/libexec/johnny-update
-  mkdir -p files/www/luci-static/resources/view/system files/usr/share/luci/menu.d files/usr/share/rpcd/acl.d
-  cp custom25/johnny-update.js files/www/luci-static/resources/view/system/
+  mkdir -p files/www/luci-static/resources/johnny files/usr/share/luci/menu.d files/usr/share/rpcd/acl.d
+  cp custom25/johnny-update.js files/www/luci-static/resources/johnny/update.js
   cp custom25/johnny-update-menu.json files/usr/share/luci/menu.d/johnny-update.json
   cp custom25/johnny-update-acl.json files/usr/share/rpcd/acl.d/johnny-update.json
   cp custom25/30-johnny-zt-lan.nft files/etc/nftables.d/
