@@ -6,6 +6,8 @@
 
 - 仓库：Johnnnnnnnyx/ImmortalWrt-ImageBuilder，定制分支：`Johnny`。
 - 工作流：`.github/workflows/build-iso-25.12.x.yml`。
+- 从本次 VPS 构建起，发布标签的末尾数字使用构建开始时的 Unix 秒时间戳，GitHub Actions 也使用同一规则。在线更新器沿用原有数字比较；不要再手工使用 Actions 的 run_number 作为新版本尾号，否则可能与 VPS 发布重名或被判断为较旧。旧标签和发布保留不动。
+- 发布构建串行执行并保持构建机时钟正确；秒级时间戳不是并发分配器，同一秒同时启动两个发布仍可能重名。
 - 构建与首次启动配置：`x86-64/build25.sh`、`99-zz-bypass`、`99-zzz-johnnywrt`。
 - 默认选择最新稳定版、1G、Docker=no；用户另有明确要求时按要求调整。
 - 2026-10-28 核实官方最新稳定版为 ImmortalWrt 25.12.2，配套内核 6.12.103。用户选择稳定版，不使用内核 6.18.55 的 SNAPSHOT。以后必须重新查询官方版本。
@@ -20,6 +22,9 @@
 5. 发布备注必须列出准确文件名、实际软件版本、手动保留配置步骤、验证结果和未验证范围。目标设备上的 `sysupgrade -T` 只是校验，不能表述为已经升级成功。
 
 ### 已确认的问题与必要依赖
+
+- Debian 13 VPS 的 Docker 26.1.5 默认继承 `RLIMIT_NOFILE=1073741816`。本次实测 ImageBuilder 的 `faked` 占满单核，`strace` 显示连续 `close(218396514...) = EBADF`；每次 APK 查询都白耗约一分钟以上。保持同一工具不变，把**构建容器**设为 `--ulimit nofile=65536:65536`，真实 `fakeroot apk --version` 在 0.022 秒完成。VPS 构建必须带此参数；不要据此更改固件、关闭测试或修改整台服务器的全局限制。
+- Debian 13 的 OVMF 使用 `OVMF_CODE_4M.fd` 与 `OVMF_VARS_4M.fd` 分离的 pflash 布局，不能把 CODE 文件改名后沿用旧测试中的 `-bios` 加载（会立即报 `could not load PC BIOS`）。VPS UEFI 测试需以只读 pflash unit 0 加载 CODE，以一次性 VARS 副本作为 unit 1；其余固件内功能检查保持原样。Ubuntu CI 的既有 OVMF 路径不因此改动。
 
 - 2026-10-28 VPS 接续诊断：在一次性旧版 #5 虚拟机中停止 QuickStart、移除测试桥的 `dheth0` 配置后重新启动 QuickStart，**未执行任何固件升级**也复现 `/etc/config/network` 变化，字段仅为 `network.@device[0].ports`。固定上游 QuickStart 的 `PlanBridgePortCommands` 会添加此端口并提交 network，overlay 就绪并不代表这项后台初始化已结束。第 12 次未保存原始 baseline，因此不能声称已精确还原那次全部差异。
 - 升级测试的 DHCP-client LAN 固定场景现在同时等待真实 SSH、overlay 状态 2、QuickStart 的 `dheth0` 桥端口及无待提交 network 配置；新增 3 项回归先失败后通过。每轮下载/校验后、真正刷写前再次与**原始 baseline**逐文件比对，并拒绝待提交配置；仍不放宽升级后的保留检查，也不刷新 baseline 掩盖变化。不要把此测试场景的桥端口条件套用到用户禁用 DHNS 的任意实机。
@@ -105,3 +110,14 @@
 - 最终升级包 SHA256：`261941783b08270b075483220e093759405852e069d05a4965e0974c26adb441`。两台授权目标设备均通过此文件的传输哈希、实际分区起点/大小和 `sysupgrade -T` 校验；前后 boot ID 相同，未刷写、未重启。实机报告和配置备份只保存在用户本机。
 - 实际版本：ImmortalWrt 25.12.2 / Linux 6.12.103，MeowX 插件 0.1.8-r1 / 核心 0.3.9-r1。固件含固定仓库的在线更新入口。
 - 现有 BIOS 设备手动上传 `.img.gz` 并保留配置，保持原启动方式；全新 UEFI 安装使用 ISO 或写入解压后的 EFI 硬盘镜像。通过虚拟机和只读实机校验，不等于已经完成用户实机升级，也不能保证任意硬件或未来跨版本兼容。
+
+## 2026-10-28 VPS 构建与菜单整合发布
+
+- 发布：`Johnnywrt-ISO-25.12.2-1793177592`；源码 `1d33824ff5e72d9140ee304146c8848ec71cd5ca`。本次在 Debian 13 VPS 构建，没有把 GitHub Actions #12 的失败标记当作成功，也没有发布从失败磁盘恢复的诊断镜像。
+- 菜单整合、ZeroTier 服务菜单位置及 `JohnnyWrt` 全新主机名通过实际固件检查。上游 QuickStart Go 测试、脚本回归、12 项 UI、7 项就绪、2 项脱敏测试通过。
+- 最终干净镜像通过 KVM/UEFI 启动和功能测试，以及 i440FX/BIOS 的普通重启、旧版 #5 到新版、新版到新版两轮保留配置验证。每轮刷写前后都比较同一个 baseline，网络、订阅、ZeroTier 身份、密码和 SSH 主机密钥均保留。
+- 最终 `.img.gz` SHA256：`aaf4f7cc25d026f5e24d38affdfcf589c6f1f50ac8883c88ffd48edef9df1956`。两台授权设备通过同一文件的传输哈希、实际分区布局与 `sysupgrade -T`；boot ID 不变，未刷写、未重启。
+- ISO 的 BIOS/UEFI 引导目录均存在，内嵌解压镜像 SHA256 `6820ac1e0eb650a2d2f9f08491e46c9be58b82a399e25162a0f66af4665ca82f` 与已测试固件完全一致。ISO SHA256：`aaa45857628e72ae9777a7a04ce8fdd5907383104764821fb61d13cd02be5f54`。
+- 实际版本：ImmortalWrt 25.12.2、Linux 6.12.103、MeowX 插件/服务 0.1.8-r1、核心 0.3.9-r1、ZeroTier 1.16.0-r2；完整版本见发布 manifest。保持 1024 MiB 根分区，Docker 未集成到路由器固件。
+- 修正构建环境后测得：QuickStart 编译测试 29 秒，固件打包 343 秒，UEFI 检查 137 秒，两轮升级检查 200 秒，ISO 制作及校验 178 秒。各阶段耗时不包含初始环境准备、问题排查、文件传输和发布；与不同时间的云端构建比较不属于严格硬件基准测试。
+- VPS 本次源码工作目录为 `/opt/johnnywrt-build/release-build`，最终文件在 `/opt/johnnywrt-build/release-output`。以后开始构建前仍须重新核对分支和稳定版本，读取本文件中的 Docker 文件数上限、OVMF pflash 和 QuickStart 就绪条件，避免直接重复失败命令。
