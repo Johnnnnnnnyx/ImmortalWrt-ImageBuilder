@@ -21,6 +21,8 @@
 
 ### 已确认的问题与必要依赖
 
+- 第 10 次构建通过编译和 UEFI 启动，但在第二次启动旧版 #5 的普通重启基线失败，尚未刷入新版。串口显示系统已正常启动，同时出现 `overlay filesystem has not been fully initialized yet`。测试此前只等 SSH 可登录就重启；OpenWrt 的 S95done 才标记 `/overlay/.fs_state -> 2`，fstools 下次启动会清理未就绪的 overlay，测试密码因此无法保留。`wait_ssh()` 必须同时检查新 boot ID（重启时）、实际 SSH 认证、overlay 状态为 2，并同步磁盘后才允许重启/升级；不能以固定等待 65 秒或端口打开代替。新增 `test-upgrade-readiness.py` 已先复现提前返回，再验证就绪等待和超时失败。此问题不同于之前 Q35 停在 BIOS 的症状，也不是 UEFI 镜像或新菜单导致。上游依据：[启动完成处理](https://github.com/openwrt/openwrt/blob/openwrt-25.12/package/base-files/files/etc/init.d/done)、[fstools 配置区状态处理](https://github.com/openwrt/fstools/blob/master/libfstools/overlay.c)。
+
 - 2026-10-28 第 6 次构建在模拟网卡检查处失败：`ip link add zttest001 type dummy` 报 `Unknown device type`，测试只安装了 `kmod-veth`，缺少 `kmod-dummy`。`smoke-test25.py` 必须在一次性测试虚拟机内安装 **kmod-veth 和 kmod-dummy**，使用当前内核对应的软件源，然后执行模拟 ZeroTier 接口和跨网段回包测试。补齐后第 7 次完整 UEFI 启动测试已通过。不要删除测试或把失败当作通过。
 - 第 7 次在 BIOS 升级后未恢复 SSH；第 8 次对照确认，未刷写新版时旧固件的普通重启也失败。Q35/SeaBIOS 测试虚拟机仍显示 running，但画面停在 `Guest has not initialized the display (yet)`，串口没有第二次引导输出。因此不能将其归因于新版刷写或分区大小。现有设备实际是 i440FX/BIOS，升级测试默认使用匹配的 `pc` 机型，并在编译前先跑旧版普通重启检查；`--machine q35 --reboot-only` 可复现原测试条件。Q35 重启故障的内部原因尚未确定，不得宣称所有 BIOS 机型兼容。完整旧到新、新到新升级门槛仍然保留。
 - 失败时保留 QMP 启动画面、串口日志和一次性虚拟磁盘，先检查证据再重跑。小于 1 MiB 的 GRUB BIOS Boot 分区提示、旧盘已有的备用 GPT 提示，都不能单独当作根因；不要据此扩大分区。失败磁盘只允许含一次性 VM 测试数据，不得上传用户实机磁盘。
@@ -77,6 +79,7 @@
 ## 发布前验收
 
 - `sh x86-64/test-ssh-qos.sh`、`test-custom25.sh`、`test-distfeeds.sh`。
+- `node --test x86-64/test-update-ui.js`、`python3 x86-64/test-upgrade-readiness.py`；实际安装的菜单过滤检查包含在升级测试中。
 - 工作流的语法检查、固定版本 QuickStart Go 测试、包清单检查。
 - `smoke-test25.py`：UEFI 启动、原有功能、SSH `-z` 生效。
 - `test-sysupgrade.py`：从上一版 ISO 提取出的硬盘镜像启动，通过真实 SSH 登录，在一次性虚拟机内执行旧到新、新到新的保留配置升级，并检查网络、密码/主机密钥、MeowX 订阅和 ZeroTier 身份配置。
