@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Destructive upgrades ONLY inside a disposable QEMU guest, never a live router."""
 import functools
+import gzip
 import http.server
 import json
 import os
 from pathlib import Path
 import selectors
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -22,13 +24,16 @@ handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(
 httpd = http.server.ThreadingHTTPServer(('127.0.0.1', 33380), handler)
 threading.Thread(target=httpd.serve_forever, daemon=True).start()
 log = (image.parent / 'upgrade-test.log').open('wb')
+monitor_path = image.parent / 'upgrade-monitor.sock'
+completed = False
 qemu = subprocess.Popen([
     'qemu-system-x86_64', '-machine', 'q35', '-m', '1024', '-smp', '2',
     # The deployed EFI/GPT disks currently boot via BIOS; smoke-test25 covers UEFI.
     '-drive', f'file={disk},format=raw,if=virtio',
     '-netdev', 'user,id=lan,hostfwd=tcp:127.0.0.1:22222-:22',
     '-device', 'virtio-net-pci,netdev=lan', '-display', 'none',
-    '-serial', 'stdio', '-monitor', 'none'],
+    '-serial', 'stdio', '-monitor', 'none',
+    '-qmp', f'unix:{monitor_path},server=on,wait=off'],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
 
@@ -105,6 +110,12 @@ try:
     reader = threading.Thread(target=drain, daemon=True)
     reader.start()
     client = wait_ssh()
+    # Prove this virtual hardware can reboot before testing any firmware update.
+    boot = run(client, 'cat /proc/sys/kernel/random/boot_id').strip()
+    run(client, "(trap '' HUP; sleep 2; reboot) >/tmp/reboot-test.log 2>&1 </dev/null &")
+    client.close()
+    client = wait_ssh(boot)
+    print('PASS: baseline BIOS reboot and SSH authentication', flush=True)
     run(client, r'''set -e
 /etc/init.d/zerotier stop
 uci set zerotier.global.enabled='0'
@@ -154,7 +165,26 @@ fw4 check
 ''')
         print(f'PASS: upgrade round {round_number}, SSH authentication, retained settings and service checks', flush=True)
     client.close()
+    completed = True
 finally:
+    if not completed and qemu.poll() is None:
+        # Capture BIOS/GRUB errors that are visible only on the VGA console.
+        try:
+            with socket.socket(socket.AF_UNIX) as monitor:
+                monitor.settimeout(5)
+                monitor.connect(str(monitor_path))
+                stream = monitor.makefile('rwb', buffering=0)
+                stream.readline()  # QMP greeting
+                for command, arguments in [('qmp_capabilities', {}), ('query-status', {}),
+                        ('screendump', {'filename': str(image.parent / 'upgrade-test-screen.ppm')})]:
+                    stream.write((json.dumps({'execute': command, 'arguments': arguments, 'id': command}) + '\n').encode())
+                    while response := stream.readline():
+                        response = json.loads(response)
+                        if response.get('id') == command:
+                            print(f'Upgrade diagnostic {command}: {response}', flush=True)
+                            break
+        except (OSError, ValueError) as error:
+            print(f'Could not capture upgrade screen: {error}', flush=True)
     qemu.terminate()
     try:
         qemu.wait(timeout=10)
@@ -165,4 +195,8 @@ finally:
     if 'reader' in locals():
         reader.join(timeout=5)
     log.close()
+    if not completed:
+        with disk.open('rb') as source, gzip.open(image.parent / 'upgrade-failed.img.gz', 'wb', compresslevel=1) as target:
+            shutil.copyfileobj(source, target)
+    monitor_path.unlink(missing_ok=True)
     disk.unlink(missing_ok=True)
