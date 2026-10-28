@@ -22,7 +22,9 @@
 ### 已确认的问题与必要依赖
 
 - 2026-10-28 第 6 次构建在模拟网卡检查处失败：`ip link add zttest001 type dummy` 报 `Unknown device type`，测试只安装了 `kmod-veth`，缺少 `kmod-dummy`。`smoke-test25.py` 必须在一次性测试虚拟机内安装 **kmod-veth 和 kmod-dummy**，使用当前内核对应的软件源，然后执行模拟 ZeroTier 接口和跨网段回包测试。补齐后第 7 次完整 UEFI 启动测试已通过。不要删除测试或把失败当作通过。
-- 第 7 次随后在首次 BIOS 保留配置升级后未恢复 SSH；日志显示刷写完成并重启，但没有新的内核输出，尚不能据此确定根因。新增普通重启基线检查、QMP 启动画面和失败虚拟磁盘保存，用来区分 BIOS/GRUB 与虚拟机重启问题。小于 1 MiB 的 GRUB BIOS Boot 分区提示、旧盘已有的备用 GPT 提示，都不能单独当作根因。兼容性仍须等完整升级测试通过；失败磁盘仅含一次性 VM 测试数据，不得换成用户实机磁盘上传。
+- 第 7 次在 BIOS 升级后未恢复 SSH；第 8 次对照确认，未刷写新版时旧固件的普通重启也失败。Q35/SeaBIOS 测试虚拟机仍显示 running，但画面停在 `Guest has not initialized the display (yet)`，串口没有第二次引导输出。因此不能将其归因于新版刷写或分区大小。现有设备实际是 i440FX/BIOS，升级测试默认使用匹配的 `pc` 机型，并在编译前先跑旧版普通重启检查；`--machine q35 --reboot-only` 可复现原测试条件。Q35 重启故障的内部原因尚未确定，不得宣称所有 BIOS 机型兼容。完整旧到新、新到新升级门槛仍然保留。
+- 失败时保留 QMP 启动画面、串口日志和一次性虚拟磁盘，先检查证据再重跑。小于 1 MiB 的 GRUB BIOS Boot 分区提示、旧盘已有的备用 GPT 提示，都不能单独当作根因；不要据此扩大分区。失败磁盘只允许含一次性 VM 测试数据，不得上传用户实机磁盘。
+- 相关上游线索：[QEMU #766](https://gitlab.com/qemu-project/qemu/-/issues/766) 记录 Q35/TCG 在重置后因 SeaBIOS 状态无法更新而循环重启，KVM 不复现。它支持检查虚拟化环境，但仅凭相似症状不能认定本次就是同一个缺陷；不要把修改真实路由器内核或 GRUB 当作既定修复。
 - 当前 BusyBox 没有 `chpasswd`、`nohup`：测试密码通过串口向 `passwd` 输入；后台任务使用忽略 HUP 的子进程并重定向输入输出。不要把仅在桌面 Linux 上存在的命令直接搬入路由器。
 - 升级重启时 SSH 握手可能抛出独立的 `EOFError`，不属于 `SSHException` 或 `OSError`。`test-sysupgrade.py` 的重连等待必须同时重试这些临时断连异常；仍须以新的 boot ID、真实登录和配置校验确认升级完成，不能仅凭端口恢复判定成功。
 - `jshn.sh` 不兼容直接开启 `set -u` 的调用方式；在线更新器使用 `set -e`，先加载 `/lib/functions.sh`，再加载 JSON 库。异常退出必须释放锁并清除半成品下载。
