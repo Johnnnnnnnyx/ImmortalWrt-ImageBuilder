@@ -61,6 +61,20 @@ jobs:
           bash -n x86-64/build25.sh
           python3 -m py_compile x86-64/smoke-test25.py x86-64/test-sysupgrade.py
 
+      - name: Verify deployed BIOS reboot baseline before building
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso squashfs-tools
+          python3 -m pip install paramiko==3.5.1
+          mkdir -p previous-release
+          gh release download Johnnywrt-ISO-25.12.2-5 --repo "${{ github.repository }}" --pattern Johnnywrt-x86_64.iso --pattern SHA256SUMS --dir previous-release
+          (cd previous-release && sha256sum -c SHA256SUMS)
+          xorriso -osirrox on -indev previous-release/Johnnywrt-x86_64.iso -extract /live/filesystem.squashfs previous-release/root.squashfs
+          unsquashfs -cat previous-release/root.squashfs mnt/custom.img > previous-release/base.img
+          python3 x86-64/test-sysupgrade.py previous-release/base.img previous-release/base.img --reboot-only
+
       - name: Build customized bypass firmware
         env:
           VERSION: ${{ inputs.luci_version }}
@@ -97,22 +111,12 @@ jobs:
 
       - name: Boot firmware and test defaults
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf xorriso squashfs-tools
           image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
           test -n "$image"
           python3 x86-64/smoke-test25.py "$image"
 
       - name: Verify retained-settings upgrades and real SSH login
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          python3 -m pip install paramiko==3.5.1
-          mkdir -p previous-release
-          gh release download Johnnywrt-ISO-25.12.2-5 --repo "${{ github.repository }}" --pattern Johnnywrt-x86_64.iso --pattern SHA256SUMS --dir previous-release
-          (cd previous-release && sha256sum -c SHA256SUMS)
-          xorriso -osirrox on -indev previous-release/Johnnywrt-x86_64.iso -extract /live/filesystem.squashfs previous-release/root.squashfs
-          unsquashfs -cat previous-release/root.squashfs mnt/custom.img > previous-release/base.img
           image=$(find bin/targets/x86/64 -maxdepth 1 -name '*squashfs-combined-efi.img.gz' -print -quit)
           python3 x86-64/test-sysupgrade.py previous-release/base.img "$image"
 
@@ -164,6 +168,9 @@ jobs:
             bin/targets/x86/64/upgrade-failed.img.gz
             bin/targets/x86/64/profiles.json
             iso-boot-catalog.txt
+            previous-release/upgrade-test.log
+            previous-release/upgrade-test-screen.ppm
+            previous-release/upgrade-failed.img.gz
           if-no-files-found: ignore
           retention-days: 7
 
