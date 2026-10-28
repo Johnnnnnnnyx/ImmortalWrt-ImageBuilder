@@ -160,9 +160,12 @@ jobs:
             bin/targets/x86/64/*.manifest
             bin/targets/x86/64/boot-test.log
             bin/targets/x86/64/upgrade-test.log
+            bin/targets/x86/64/upgrade-test-screen.ppm
+            bin/targets/x86/64/upgrade-failed.img.gz
             bin/targets/x86/64/profiles.json
             iso-boot-catalog.txt
           if-no-files-found: ignore
+          retention-days: 7
 
       - name: Prepare ISO release notes
         env:
