@@ -11,7 +11,7 @@ function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) 
 
 
 class ReadinessTest(unittest.TestCase):
-    def run_wait(self, states, previous_boot=None):
+    def run_wait(self, states, previous_boot=None, ready_after=0):
         clock = Mock()
         elapsed = [0]
         clock.monotonic.side_effect = lambda: elapsed[0]
@@ -20,6 +20,8 @@ class ReadinessTest(unittest.TestCase):
         connected, commands = [], []
 
         def connect():
+            if elapsed[0] < ready_after:
+                raise ConnectionError('Guest is still booting')
             client = clients[len(connected)] if len(connected) < len(clients) else clients[-1]
             connected.append(client)
             return client
@@ -30,7 +32,7 @@ class ReadinessTest(unittest.TestCase):
                     'readlink /overlay/.fs_state': client.state, 'sync': ''}[command]
 
         namespace = dict(time=clock, paramiko=types.SimpleNamespace(SSHException=ConnectionError),
-                         qemu=Mock(poll=lambda: None), connect=connect, run=run)
+                         qemu=Mock(poll=lambda: None), connect=connect, run=run, print=Mock())
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
         result = namespace['wait_ssh'](previous_boot)
         return result, connected, commands
@@ -49,6 +51,11 @@ class ReadinessTest(unittest.TestCase):
     def test_overlay_that_never_finishes_is_a_failure(self):
         with self.assertRaises(RuntimeError):
             self.run_wait(['1'])
+
+    def test_slow_emulated_flash_and_boot_can_finish_after_four_minutes(self):
+        _, connected, commands = self.run_wait(['2'], 'old-boot', ready_after=300)
+        self.assertEqual(len(connected), 1)
+        self.assertEqual(commands[-1], 'sync')
 
 
 if __name__ == '__main__':

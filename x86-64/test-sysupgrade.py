@@ -67,7 +67,10 @@ def run(client, command):
 
 
 def wait_ssh(previous_boot=None):
-    deadline = time.monotonic() + 240
+    started = time.monotonic()
+    # TCG must write a 1 GiB image before booting; 240s was marginal in CI.
+    deadline = started + 600
+    next_report = started + 30
     last_status = 'No successful SSH connection yet'
     while time.monotonic() < deadline:
         if qemu.poll() is not None:
@@ -82,12 +85,16 @@ def wait_ssh(previous_boot=None):
             # Rebooting earlier lets fstools clear the pending overlay next boot.
             if (previous_boot is None or boot != previous_boot) and state == '2':
                 run(client, 'sync')
+                print(f'PASS: SSH and overlay ready after {time.monotonic() - started:.0f}s', flush=True)
                 return client
             client.close()
         except (OSError, EOFError, paramiko.SSHException, RuntimeError) as error:
             last_status = f'{type(error).__name__}: {error}'
             if client is not None:
                 client.close()
+        if time.monotonic() >= next_report:
+            print(f'Waiting for guest ({time.monotonic() - started:.0f}s): {last_status}', flush=True)
+            next_report = time.monotonic() + 30
         time.sleep(3)
     raise RuntimeError('SSH and overlay did not become ready: ' + last_status)
 
